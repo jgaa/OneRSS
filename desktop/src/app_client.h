@@ -1,0 +1,86 @@
+#pragma once
+
+#include "article_types.h"
+#include "user_notification.h"
+#include "secret_store.h"
+#include "protocol_io.h"
+#include "tree_types.h"
+
+#include <boost/asio/ssl.hpp>
+
+#include <functional>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <unordered_map>
+#include <QVector>
+
+namespace onerss::desktop {
+
+struct ArticlePage {
+  QVector<ArticleData> articles;
+  bool has_more = false;
+  int next_offset = 0;
+};
+
+struct UserSettingsData {
+  int default_refresh_interval_hours = 12;
+};
+
+class AppClient final {
+ public:
+  AppClient();
+  ~AppClient();
+
+  void connectAndStart(const StoredPeer &peer);
+  void stop();
+  [[nodiscard]] QVector<TreeNodeData> fetchTree();
+  [[nodiscard]] UserSettingsData fetchUserSettings();
+  [[nodiscard]] UserSettingsData updateUserSettings(const UserSettingsData &settings);
+  [[nodiscard]] int fetchUnreadCount();
+  [[nodiscard]] ArticlePage fetchArticles(const QString &node_id, int offset, int limit);
+  [[nodiscard]] int markArticleRead(const QString &node_id, const QString &article_id);
+  [[nodiscard]] int markAllArticlesRead(const QString &node_id);
+  [[nodiscard]] TreeNodeData createFolder(const QString &parent_id, const QString &title);
+  [[nodiscard]] TreeNodeData createFeed(const QString &parent_id,
+                                        const QString &title,
+                                        const QString &feed_url,
+                                        const QString &comment);
+  [[nodiscard]] TreeNodeData updateNode(const TreeNodeData &node);
+  void deleteNode(const QString &node_id);
+  void refreshFeed(const QString &node_id);
+
+  std::function<void(const TreeNodeData &, const QString &origin_device_id)> onNodeUpserted;
+  std::function<void(const QString &node_id, const QString &origin_device_id)> onNodeDeleted;
+  std::function<void(const QString &node_id, const QString &origin_device_id)> onArticlesUpdated;
+  std::function<void(const UserSettingsData &, const QString &origin_device_id)> onUserSettingsUpdated;
+  std::function<void(const UiStatusMessage &message)> onUserNotification;
+
+  [[nodiscard]] QString deviceId() const;
+
+ private:
+  using tcp = boost::asio::ip::tcp;
+  using ssl_context_t = boost::asio::ssl::context;
+  using ssl_stream_t = boost::asio::ssl::stream<tcp::socket>;
+  using stream_t = ssl_stream_t;
+
+  [[nodiscard]] onerss::pb::OutgoingEnvelope request(const onerss::pb::IncomingEnvelope &request);
+  void emitUserNotification(const onerss::pb::OutgoingEnvelope &envelope);
+  void readerLoop();
+  void writerLoop();
+  static std::string newRequestId();
+
+  boost::asio::io_context io_context_;
+  ssl_context_t context_;
+  std::unique_ptr<stream_t> stream_;
+  StoredPeer peer_;
+  std::thread reader_thread_;
+  std::thread writer_thread_;
+  std::mutex pending_mutex_;
+  std::unordered_map<std::string, std::promise<onerss::pb::OutgoingEnvelope>> pending_;
+  OutgoingMessageQueue<onerss::pb::IncomingEnvelope> outgoing_;
+  bool running_ = false;
+};
+
+}  // namespace onerss::desktop

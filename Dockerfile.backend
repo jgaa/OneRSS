@@ -1,0 +1,50 @@
+FROM ubuntu:24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        git \
+        libboost-program-options-dev \
+        libprotobuf-dev \
+        libsqlite3-dev \
+        libssl-dev \
+        ninja-build \
+        pkg-config \
+        protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+COPY . .
+
+RUN cmake -S . -B build \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DONERSS_BUILD_BACKEND=ON \
+        -DONERSS_BUILD_DESKTOP=OFF \
+    && cmake --build build --target onerss-backend
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libboost-program-options1.83.0 \
+        libprotobuf32t64 \
+        libsqlite3-0 \
+        libssl3t64 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /src/build/bin/onerss-backend /app/onerss-backend
+
+EXPOSE 7443 7444
+
+ENTRYPOINT ["/app/onerss-backend"]

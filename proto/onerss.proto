@@ -1,0 +1,254 @@
+syntax = "proto3";
+
+package onerss.pb;
+
+message Error {
+  string code = 1;
+  string message = 2;
+  UserNotification user_notification = 3;
+}
+
+enum UiMessageSeverity {
+  UI_MESSAGE_SEVERITY_UNSPECIFIED = 0;
+  UI_MESSAGE_SEVERITY_INFO = 1;
+  UI_MESSAGE_SEVERITY_SUCCESS = 2;
+  UI_MESSAGE_SEVERITY_WARNING = 3;
+  UI_MESSAGE_SEVERITY_ERROR = 4;
+}
+
+enum UiMessageCode {
+  UI_MESSAGE_CODE_UNSPECIFIED = 0;
+  UI_MESSAGE_CODE_CONNECTED = 1;
+  UI_MESSAGE_CODE_PAIRING_REQUIRED = 2;
+  UI_MESSAGE_CODE_CONNECTION_FAILED = 3;
+  UI_MESSAGE_CODE_TREE_NODE_CREATED = 4;
+  UI_MESSAGE_CODE_TREE_NODE_UPDATED = 5;
+  UI_MESSAGE_CODE_TREE_NODE_DELETED = 6;
+  UI_MESSAGE_CODE_TREE_NODE_CREATE_FAILED = 7;
+  UI_MESSAGE_CODE_TREE_NODE_UPDATE_FAILED = 8;
+  UI_MESSAGE_CODE_TREE_NODE_DELETE_FAILED = 9;
+  UI_MESSAGE_CODE_ARTICLES_LOADED = 10;
+  UI_MESSAGE_CODE_ARTICLES_LOAD_FAILED = 11;
+  UI_MESSAGE_CODE_FEED_REFRESHED = 12;
+  UI_MESSAGE_CODE_FEED_REFRESH_FAILED = 13;
+  UI_MESSAGE_CODE_INVALID_REQUEST = 14;
+  UI_MESSAGE_CODE_AUTHENTICATION_FAILED = 15;
+  UI_MESSAGE_CODE_SIGNUP_FAILED = 16;
+}
+
+message UserNotification {
+  UiMessageSeverity severity = 1;
+  UiMessageCode code = 2;
+  string context = 3;
+}
+
+message SignupRequest {
+  enum Mode {
+    MODE_CREATE_ACCOUNT = 0;
+    MODE_PAIR_DEVICE = 1;
+  }
+
+  Mode mode = 1;
+  string login = 2;
+  string password = 3;
+  string device_name = 4;
+}
+
+message SignupResponse {
+  string user_id = 1;
+  string login = 2;
+  string device_id = 3;
+  bool created_account = 4;
+  bytes ca_certificate_pem = 5;
+  bytes client_certificate_pem = 6;
+  bytes client_private_key_pem = 7;
+  uint32 app_port = 8;
+}
+
+message AppHelloRequest {}
+
+message AppHelloResponse {
+  string user_id = 1;
+  string login = 2;
+  string device_id = 3;
+}
+
+message UserSettings {
+  uint32 default_refresh_interval_hours = 1;
+}
+
+message GetUserSettingsRequest {}
+
+message UpdateUserSettingsRequest {
+  UserSettings settings = 1;
+}
+
+message UserSettingsResponse {
+  UserSettings settings = 1;
+}
+
+message TreeNode {
+  enum Type {
+    TYPE_FOLDER = 0;
+    TYPE_FEED = 1;
+  }
+
+  string node_id = 1;
+  string parent_id = 2;
+  Type type = 3;
+  string title = 4;
+  string feed_url = 5;
+  string comment = 6;
+  bool use_default_refresh_interval = 7;
+  uint32 refresh_interval_hours = 8;
+}
+
+message FetchTreeRequest {}
+
+message TreeNodesResponse {
+  repeated TreeNode nodes = 1;
+}
+
+message CreateFolderRequest {
+  string parent_id = 1;
+  string title = 2;
+}
+
+message CreateFeedRequest {
+  string parent_id = 1;
+  string title = 2;
+  string feed_url = 3;
+  string comment = 4;
+}
+
+message UpdateNodeRequest {
+  TreeNode node = 1;
+}
+
+message DeleteNodeRequest {
+  string node_id = 1;
+}
+
+message TreeNodeResponse {
+  TreeNode node = 1;
+}
+
+message DeleteNodeResponse {
+  string node_id = 1;
+}
+
+message RefreshFeedRequest {
+  string node_id = 1;
+}
+
+message RefreshFeedResponse {
+  string node_id = 1;
+  uint32 fetched_article_count = 2;
+}
+
+message Article {
+  string article_id = 1;
+  string node_id = 2;
+  string title = 3;
+  string link_url = 4;
+  string published_at = 5;
+  string author = 6;
+  string content = 7;
+  bool is_read = 8;
+}
+
+message FetchArticlesRequest {
+  string node_id = 1;
+  uint32 offset = 2;
+  uint32 limit = 3;
+}
+
+message ArticlesResponse {
+  repeated Article articles = 1;
+  bool has_more = 2;
+  uint32 next_offset = 3;
+}
+
+message GetUnreadCountRequest {}
+
+message UnreadCountResponse {
+  uint32 unread_count = 1;
+}
+
+message MarkArticleReadRequest {
+  string node_id = 1;
+  string article_id = 2;
+}
+
+message MarkAllArticlesReadRequest {
+  string node_id = 1;
+}
+
+message MarkArticlesReadResponse {
+  string node_id = 1;
+  uint32 changed_count = 2;
+}
+
+message TreeNodeUpsertedNotification {
+  string origin_device_id = 1;
+  TreeNode node = 2;
+}
+
+message TreeNodeDeletedNotification {
+  string origin_device_id = 1;
+  string node_id = 2;
+}
+
+message ArticlesUpdatedNotification {
+  string origin_device_id = 1;
+  string node_id = 2;
+}
+
+message UserSettingsUpdatedNotification {
+  string origin_device_id = 1;
+  UserSettings settings = 2;
+}
+
+message IncomingEnvelope {
+  string request_id = 1;
+
+  oneof payload {
+    SignupRequest signup_request = 2;
+    AppHelloRequest app_hello_request = 3;
+    GetUserSettingsRequest get_user_settings_request = 4;
+    UpdateUserSettingsRequest update_user_settings_request = 5;
+    FetchTreeRequest fetch_tree_request = 6;
+    CreateFolderRequest create_folder_request = 7;
+    CreateFeedRequest create_feed_request = 8;
+    UpdateNodeRequest update_node_request = 9;
+    DeleteNodeRequest delete_node_request = 10;
+    RefreshFeedRequest refresh_feed_request = 11;
+    FetchArticlesRequest fetch_articles_request = 12;
+    GetUnreadCountRequest get_unread_count_request = 13;
+    MarkArticleReadRequest mark_article_read_request = 14;
+    MarkAllArticlesReadRequest mark_all_articles_read_request = 15;
+  }
+}
+
+message OutgoingEnvelope {
+  string request_id = 1;
+  UserNotification user_notification = 100;
+
+  oneof payload {
+    SignupResponse signup_response = 2;
+    AppHelloResponse app_hello_response = 3;
+    UserSettingsResponse user_settings_response = 4;
+    TreeNodesResponse tree_nodes_response = 5;
+    TreeNodeResponse tree_node_response = 6;
+    DeleteNodeResponse delete_node_response = 7;
+    RefreshFeedResponse refresh_feed_response = 8;
+    ArticlesResponse articles_response = 9;
+    UnreadCountResponse unread_count_response = 10;
+    MarkArticlesReadResponse mark_articles_read_response = 11;
+    TreeNodeUpsertedNotification tree_node_upserted_notification = 12;
+    TreeNodeDeletedNotification tree_node_deleted_notification = 13;
+    ArticlesUpdatedNotification articles_updated_notification = 14;
+    UserSettingsUpdatedNotification user_settings_updated_notification = 15;
+    Error error = 16;
+  }
+}
