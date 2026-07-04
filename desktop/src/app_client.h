@@ -40,6 +40,7 @@ class AppClient final {
   [[nodiscard]] int fetchUnreadCount();
   [[nodiscard]] ArticlePage fetchArticles(const QString &node_id, int offset, int limit);
   [[nodiscard]] int markArticleRead(const QString &node_id, const QString &article_id);
+  [[nodiscard]] int markArticleUnread(const QString &node_id, const QString &article_id);
   [[nodiscard]] int markAllArticlesRead(const QString &node_id);
   [[nodiscard]] TreeNodeData createFolder(const QString &parent_id, const QString &title);
   [[nodiscard]] TreeNodeData createFeed(const QString &parent_id,

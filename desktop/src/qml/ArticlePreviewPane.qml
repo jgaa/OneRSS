@@ -26,9 +26,13 @@ Frame {
 
             ToolButton {
                 visible: root.showBackButton
-                text: "\u2190"
-                font.pixelSize: 22
-                font.bold: true
+                implicitWidth: 40
+                implicitHeight: 40
+                contentItem: MaterialIcon {
+                    text: "arrow_back"
+                    iconSize: 24
+                    color: "#263238"
+                }
                 Accessible.name: qsTr("Back")
                 onClicked: root.backRequested()
             }

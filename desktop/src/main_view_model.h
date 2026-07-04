@@ -27,6 +27,7 @@ class MainViewModel final : public QObject {
   Q_PROPERTY(QString previewMeta READ previewMeta NOTIFY previewChanged)
   Q_PROPERTY(QString previewContent READ previewContent NOTIFY previewChanged)
   Q_PROPERTY(bool hasPreview READ hasPreview NOTIFY previewChanged)
+  Q_PROPERTY(bool selectedArticleIsRead READ selectedArticleIsRead NOTIFY selectedArticleStateChanged)
   Q_PROPERTY(bool canLoadMoreArticles READ canLoadMoreArticles NOTIFY articlePagingChanged)
   Q_PROPERTY(bool loadingMoreArticles READ loadingMoreArticles NOTIFY articlePagingChanged)
 
@@ -49,6 +50,7 @@ class MainViewModel final : public QObject {
   [[nodiscard]] QString previewMeta() const;
   [[nodiscard]] QString previewContent() const;
   [[nodiscard]] bool hasPreview() const;
+  [[nodiscard]] bool selectedArticleIsRead() const;
   [[nodiscard]] bool canLoadMoreArticles() const;
   [[nodiscard]] bool loadingMoreArticles() const;
 
@@ -74,6 +76,7 @@ class MainViewModel final : public QObject {
   Q_INVOKABLE void selectArticleRow(int row);
   Q_INVOKABLE void markAllArticlesRead(const QString &node_id);
   Q_INVOKABLE void updateUserRefreshIntervalHours(int hours);
+  Q_INVOKABLE void markSelectedArticleUnread();
   Q_INVOKABLE void openSelectedArticle();
   Q_INVOKABLE void clearStatusBar();
   Q_INVOKABLE void requestFeedTitleLookup(const QString &feed_url);
@@ -90,6 +93,7 @@ class MainViewModel final : public QObject {
   void userSettingsChanged();
   void unreadCountChanged();
   void previewChanged();
+  void selectedArticleStateChanged();
   void articlePagingChanged();
 
  private:
@@ -99,6 +103,7 @@ class MainViewModel final : public QObject {
   void reloadArticlesForCurrentNode();
   void loadArticlesPage(const QString &node_id, bool append);
   void refreshUnreadCount();
+  [[nodiscard]] bool markSelectedArticleRead();
   void setPreviewFromArticle(const QVariantMap &article);
 
   FeedTreeModel feed_tree_model_;

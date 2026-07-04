@@ -180,6 +180,11 @@ message MarkArticleReadRequest {
   string article_id = 2;
 }
 
+message MarkArticleUnreadRequest {
+  string node_id = 1;
+  string article_id = 2;
+}
+
 message MarkAllArticlesReadRequest {
   string node_id = 1;
 }
@@ -227,6 +232,7 @@ message IncomingEnvelope {
     GetUnreadCountRequest get_unread_count_request = 13;
     MarkArticleReadRequest mark_article_read_request = 14;
     MarkAllArticlesReadRequest mark_all_articles_read_request = 15;
+    MarkArticleUnreadRequest mark_article_unread_request = 16;
   }
 }
 

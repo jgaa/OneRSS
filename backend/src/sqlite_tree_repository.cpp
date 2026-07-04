@@ -344,6 +344,20 @@ std::size_t SqliteTreeRepository::markArticleRead(const std::string &user_id,
   return static_cast<std::size_t>(sqlite3_changes(db_.get()));
 }
 
+std::size_t SqliteTreeRepository::markArticleUnread(const std::string &user_id,
+                                                    const std::string &node_id,
+                                                    const std::string &article_id) {
+  std::scoped_lock lock{mutex_};
+  auto update = prepare(*db_,
+                        "UPDATE articles SET is_read = 0 "
+                        "WHERE user_id = ?1 AND node_id = ?2 AND id = ?3 AND is_read = 1");
+  bindText(*update, 1, user_id);
+  bindText(*update, 2, node_id);
+  bindText(*update, 3, article_id);
+  checkStepDone(*db_, sqlite3_step(update.get()));
+  return static_cast<std::size_t>(sqlite3_changes(db_.get()));
+}
+
 std::size_t SqliteTreeRepository::markAllArticlesRead(const std::string &user_id, const std::string &node_id) {
   std::scoped_lock lock{mutex_};
   validateParentLocked(user_id, node_id, onerss::pb::TreeNode::TYPE_FEED);

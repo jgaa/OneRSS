@@ -122,11 +122,27 @@ QVariantMap ArticleListModel::articleAt(const int row) const {
   return articles_.at(row).toVariantMap();
 }
 
+bool ArticleListModel::isReadAt(const int row) const {
+  if (row < 0 || row >= articles_.size()) {
+    return false;
+  }
+  return articles_.at(row).is_read;
+}
+
 bool ArticleListModel::markReadByRow(const int row) {
   if (row < 0 || row >= articles_.size() || articles_[row].is_read) {
     return false;
   }
   articles_[row].is_read = true;
+  emit dataChanged(index(row, 0), index(row, 0), {IsReadRole});
+  return true;
+}
+
+bool ArticleListModel::markUnreadByRow(const int row) {
+  if (row < 0 || row >= articles_.size() || !articles_[row].is_read) {
+    return false;
+  }
+  articles_[row].is_read = false;
   emit dataChanged(index(row, 0), index(row, 0), {IsReadRole});
   return true;
 }

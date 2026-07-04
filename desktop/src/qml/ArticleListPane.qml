@@ -10,6 +10,7 @@ Frame {
     property bool showBackButton: false
     property bool showPreviewButton: false
     property bool showOpenButton: false
+    property bool showUnreadButton: false
     property string titleText: qsTr("Article List")
     property string emptySubtitle: qsTr("Your article list will appear here after feeds are added and synchronized.")
     property var formatTimestamp: function(value) { return value }
@@ -17,6 +18,7 @@ Frame {
     signal backRequested()
     signal previewRequested()
     signal openInBrowserRequested()
+    signal markUnreadRequested()
     signal articlePreviewRequested(int row)
 
     Layout.fillWidth: true
@@ -31,9 +33,13 @@ Frame {
 
             ToolButton {
                 visible: root.showBackButton
-                text: "\u2190"
-                font.pixelSize: 22
-                font.bold: true
+                implicitWidth: 40
+                implicitHeight: 40
+                contentItem: MaterialIcon {
+                    text: "arrow_back"
+                    iconSize: 24
+                    color: "#263238"
+                }
                 Accessible.name: qsTr("Back")
                 onClicked: root.backRequested()
             }
@@ -48,7 +54,7 @@ Frame {
         }
 
         RowLayout {
-            visible: root.showPreviewButton || root.showOpenButton
+            visible: root.showPreviewButton || root.showOpenButton || root.showUnreadButton
             Layout.fillWidth: true
 
             Button {
@@ -67,6 +73,15 @@ Frame {
                          && root.viewModel.articleListModel.selectedRow >= 0
                          && root.viewModel.hasPreview
                 onClicked: root.openInBrowserRequested()
+            }
+
+            Button {
+                visible: root.showUnreadButton
+                text: qsTr("Unread")
+                enabled: !!root.viewModel
+                         && root.viewModel.articleListModel.selectedRow >= 0
+                         && root.viewModel.selectedArticleIsRead
+                onClicked: root.markUnreadRequested()
             }
         }
 

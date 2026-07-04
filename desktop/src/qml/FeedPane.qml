@@ -8,6 +8,7 @@ Frame {
     required property var viewModel
     property bool narrowMode: false
     property string headerText: qsTr("Feeds")
+    readonly property bool androidMode: Qt.platform.os === "android"
     property string draggedNodeId: ""
     property string dropTargetNodeId: ""
     property bool hasDropTarget: false
@@ -128,11 +129,12 @@ Frame {
                     anchors.rightMargin: 8
                     spacing: root.narrowMode ? 8 : 6
 
-                    Label {
+                    MaterialIcon {
                         visible: !root.narrowMode
                         width: 14
-                        horizontalAlignment: Text.AlignHCenter
-                        text: hasChildren ? (expanded ? "▾" : "▸") : ""
+                        iconSize: 18
+                        color: "#2a2725"
+                        text: hasChildren ? (expanded ? "expand_more" : "chevron_right") : ""
                     }
 
                     Label {
@@ -152,7 +154,13 @@ Frame {
                     ToolButton {
                         id: expandButton
                         visible: root.narrowMode && hasChildren
-                        text: expanded ? "▾" : "▸"
+                        implicitWidth: 32
+                        implicitHeight: 32
+                        contentItem: MaterialIcon {
+                            text: expanded ? "expand_more" : "chevron_right"
+                            iconSize: 22
+                            color: "#2a2725"
+                        }
                         onClicked: root.nodeExpansionRequested(nodeId)
                     }
                 }
@@ -176,6 +184,11 @@ Frame {
                     }
 
                     onPressAndHold: function(mouse) {
+                        if (androidMode) {
+                            root.nodeSelected(nodeId)
+                            treeMenu.popup()
+                            return
+                        }
                         if (mouse.button !== Qt.LeftButton || synthetic) {
                             return
                         }

@@ -528,8 +528,13 @@ ApplicationWindow {
                 spacing: 10
 
                 ToolButton {
-                    text: "\u2630"
-                    font.pixelSize: 22
+                    implicitWidth: 40
+                    implicitHeight: 40
+                    contentItem: MaterialIcon {
+                        text: "menu"
+                        iconSize: 26
+                        color: "#263238"
+                    }
                     onClicked: narrowAppMenu.popup()
                 }
 
@@ -607,7 +612,9 @@ ApplicationWindow {
                         viewModel: mainViewModel
                         formatTimestamp: formatArticleTimestamp
                         showOpenButton: true
+                        showUnreadButton: true
                         onOpenInBrowserRequested: mainViewModel.openSelectedArticle()
+                        onMarkUnreadRequested: mainViewModel.markSelectedArticleUnread()
                     }
 
                     ArticlePreviewPane {
@@ -673,11 +680,13 @@ ApplicationWindow {
                     showBackButton: true
                     showPreviewButton: true
                     showOpenButton: true
+                    showUnreadButton: true
                     titleText: selectedNodeTitle()
                     formatTimestamp: formatArticleTimestamp
                     onBackRequested: narrowPageIndex = 0
                     onPreviewRequested: narrowPageIndex = 2
                     onOpenInBrowserRequested: mainViewModel.openSelectedArticle()
+                    onMarkUnreadRequested: mainViewModel.markSelectedArticleUnread()
                     onArticlePreviewRequested: function(row) {
                         openNarrowPreview(row)
                     }

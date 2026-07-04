@@ -144,6 +144,10 @@ bool MainViewModel::hasPreview() const {
   return !preview_title_.isEmpty() || !preview_content_.isEmpty();
 }
 
+bool MainViewModel::selectedArticleIsRead() const {
+  return article_list_model_.isReadAt(article_list_model_.selectedRow());
+}
+
 bool MainViewModel::canLoadMoreArticles() const {
   return can_load_more_articles_;
 }
@@ -367,23 +371,8 @@ void MainViewModel::selectNode(const QString &node_id) {
 
 void MainViewModel::selectArticleRow(const int row) {
   article_list_model_.selectRow(row);
-  const auto article = article_list_model_.articleAt(row);
-  if (!article.isEmpty() && !article.value(QStringLiteral("isRead")).toBool()) {
-    if (article_list_model_.markReadByRow(row) && unread_count_ > 0) {
-      --unread_count_;
-      emit unreadCountChanged();
-    }
-    runAsync([this,
-              node_id = article.value(QStringLiteral("nodeId")).toString(),
-              article_id = article.value(QStringLiteral("articleId")).toString()]() {
-      try {
-        static_cast<void>(app_client_.markArticleRead(node_id, article_id));
-      } catch (const std::exception &error) {
-        LOG_WARN << "Mark article read failed: " << error.what();
-        refreshUnreadCount();
-      }
-    });
-  }
+  emit selectedArticleStateChanged();
+  static_cast<void>(markSelectedArticleRead());
 }
 
 void MainViewModel::markAllArticlesRead(const QString &node_id) {
@@ -428,7 +417,34 @@ void MainViewModel::updateUserRefreshIntervalHours(const int hours) {
   });
 }
 
+void MainViewModel::markSelectedArticleUnread() {
+  const auto row = article_list_model_.selectedRow();
+  const auto article = article_list_model_.articleAt(row);
+  if (article.isEmpty() || !article.value(QStringLiteral("isRead")).toBool()) {
+    return;
+  }
+
+  if (article_list_model_.markUnreadByRow(row)) {
+    ++unread_count_;
+    emit unreadCountChanged();
+    emit selectedArticleStateChanged();
+  }
+
+  runAsync([this,
+            node_id = article.value(QStringLiteral("nodeId")).toString(),
+            article_id = article.value(QStringLiteral("articleId")).toString()]() {
+    try {
+      static_cast<void>(app_client_.markArticleUnread(node_id, article_id));
+    } catch (const std::exception &error) {
+      LOG_WARN << "Mark article unread failed: " << error.what();
+      refreshUnreadCount();
+      reloadArticlesForCurrentNode();
+    }
+  });
+}
+
 void MainViewModel::openSelectedArticle() {
+  static_cast<void>(markSelectedArticleRead());
   if (selected_article_link_.isEmpty()) {
     return;
   }
@@ -572,6 +588,33 @@ void MainViewModel::refreshUnreadCount() {
   });
 }
 
+bool MainViewModel::markSelectedArticleRead() {
+  const auto row = article_list_model_.selectedRow();
+  const auto article = article_list_model_.articleAt(row);
+  if (article.isEmpty() || article.value(QStringLiteral("isRead")).toBool()) {
+    return false;
+  }
+
+  if (article_list_model_.markReadByRow(row) && unread_count_ > 0) {
+    --unread_count_;
+    emit unreadCountChanged();
+    emit selectedArticleStateChanged();
+  }
+
+  runAsync([this,
+            node_id = article.value(QStringLiteral("nodeId")).toString(),
+            article_id = article.value(QStringLiteral("articleId")).toString()]() {
+    try {
+      static_cast<void>(app_client_.markArticleRead(node_id, article_id));
+    } catch (const std::exception &error) {
+      LOG_WARN << "Mark article read failed: " << error.what();
+      refreshUnreadCount();
+      reloadArticlesForCurrentNode();
+    }
+  });
+  return true;
+}
+
 void MainViewModel::setPreviewFromArticle(const QVariantMap &article) {
   preview_title_ = article.value(QStringLiteral("title")).toString();
   const auto author = article.value(QStringLiteral("author")).toString();
@@ -580,6 +623,7 @@ void MainViewModel::setPreviewFromArticle(const QVariantMap &article) {
   preview_content_ = article.value(QStringLiteral("content")).toString();
   selected_article_link_ = article.value(QStringLiteral("linkUrl")).toString();
   emit previewChanged();
+  emit selectedArticleStateChanged();
 }
 
 }  // namespace onerss::desktop

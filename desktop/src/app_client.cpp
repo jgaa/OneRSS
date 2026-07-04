@@ -180,6 +180,22 @@ int AppClient::markArticleRead(const QString &node_id, const QString &article_id
   return static_cast<int>(response.markArticlesReadResponse().changedCount());
 }
 
+int AppClient::markArticleUnread(const QString &node_id, const QString &article_id) {
+  onerss::pb::IncomingEnvelope request_envelope;
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::MarkArticleUnreadRequest payload;
+  payload.setNodeId(node_id);
+  payload.setArticleId(article_id);
+  request_envelope.setMarkArticleUnreadRequest(std::move(payload));
+  const auto response = request(request_envelope);
+  emitUserNotification(response);
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
+  }
+  return static_cast<int>(response.markArticlesReadResponse().changedCount());
+}
+
 int AppClient::markAllArticlesRead(const QString &node_id) {
   onerss::pb::IncomingEnvelope request_envelope;
   request_envelope.setRequestId(QString::fromStdString(newRequestId()));

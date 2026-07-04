@@ -77,8 +77,13 @@ qt_add_qml_module(onerss-desktop
     src/qml/FeedPane.qml
     src/qml/GeneralSettings.qml
     src/qml/LoggingSettings.qml
+    src/qml/MaterialIcon.qml
     src/qml/SettingsDialog.qml
     src/qml/SignupDialog.qml
+  RESOURCES
+    ../fonts/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf
+    ../fonts/MaterialSymbolsRounded[FILL,GRAD,opsz,wght].ttf
+    ../fonts/MaterialSymbolsSharp[FILL,GRAD,opsz,wght].ttf
 )
 
 target_compile_definitions(onerss-desktop
