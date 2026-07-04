@@ -11,7 +11,7 @@ ApplicationWindow {
     title: Qt.application.name
     color: "#f3efe7"
     onClosing: function(close) {
-        if (trayController.trayAvailable) {
+        if (typeof trayController !== "undefined" && trayController && trayController.trayAvailable) {
             close.accepted = false
             hide()
         }
