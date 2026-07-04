@@ -4,14 +4,14 @@
 #include "protocol_io.h"
 
 #include <algorithm>
-#include <boost/uuid/random_generator.hpp>
-#include <boost/uuid/uuid_io.hpp>
+#include <QByteArray>
+#include <QSslCertificate>
+#include <QSslConfiguration>
+#include <QSslKey>
+#include <QUuid>
 
 namespace onerss::desktop {
 namespace {
-
-using boost::asio::ip::tcp;
-namespace ssl = boost::asio::ssl;
 
 class BackendCommandError final : public std::runtime_error {
  public:
@@ -41,7 +41,7 @@ onerss::pb::UserSettings toProto(const UserSettingsData &settings) {
 
 }  // namespace
 
-AppClient::AppClient() : context_{boost::asio::ssl::context::tls_client} {}
+AppClient::AppClient() = default;
 
 AppClient::~AppClient() {
   stop();
@@ -50,27 +50,13 @@ AppClient::~AppClient() {
 void AppClient::connectAndStart(const StoredPeer &peer) {
   stop();
   peer_ = peer;
-
-  context_ = ssl_context_t{boost::asio::ssl::context::tls_client};
-  context_.set_verify_mode(ssl::verify_peer);
-  const auto ca = peer.ca_certificate_pem.toUtf8();
-  context_.add_certificate_authority(
-    boost::asio::buffer(ca.constData(), static_cast<std::size_t>(ca.size())));
-  const auto cert = peer.client_certificate_pem.toUtf8();
-  const auto key = peer.client_private_key_pem.toUtf8();
-  context_.use_certificate_chain(boost::asio::buffer(cert.constData(), static_cast<std::size_t>(cert.size())));
-  context_.use_private_key(boost::asio::buffer(key.constData(), static_cast<std::size_t>(key.size())),
-                           ssl::context::pem);
-
-  stream_ = std::make_unique<stream_t>(io_context_, context_);
-  tcp::resolver resolver{io_context_};
-  const auto endpoints = resolver.resolve(peer.server_host.toStdString(), std::to_string(peer.app_port));
-  boost::asio::connect(stream_->next_layer(), endpoints);
-  stream_->handshake(ssl::stream_base::client);
   running_ = true;
-
-  reader_thread_ = std::thread([this]() { readerLoop(); });
-  writer_thread_ = std::thread([this]() { writerLoop(); });
+  std::promise<void> ready_promise;
+  auto ready_future = ready_promise.get_future();
+  io_thread_ = std::thread([this, ready_promise = std::move(ready_promise)]() mutable {
+    ioLoop(std::move(ready_promise));
+  });
+  ready_future.get();
 
   onerss::pb::IncomingEnvelope hello;
   hello.setRequestId(QString::fromStdString(newRequestId()));
@@ -90,13 +76,9 @@ void AppClient::stop() {
   }
   running_ = false;
   outgoing_.close();
-  if (reader_thread_.joinable()) {
-    reader_thread_.join();
+  if (io_thread_.joinable()) {
+    io_thread_.join();
   }
-  if (writer_thread_.joinable()) {
-    writer_thread_.join();
-  }
-  stream_.reset();
 }
 
 QVector<TreeNodeData> AppClient::fetchTree() {
@@ -312,68 +294,111 @@ void AppClient::emitUserNotification(const onerss::pb::OutgoingEnvelope &envelop
   }
 }
 
-void AppClient::readerLoop() {
-  try {
-    while (running_ && stream_ != nullptr) {
-      auto envelope = readEnvelope<stream_t, onerss::pb::OutgoingEnvelope>(*stream_);
-      emitUserNotification(envelope);
-      if (envelope.requestId().isEmpty()) {
-        if (envelope.hasTreeNodeUpsertedNotification() && onNodeUpserted) {
-          const auto &payload = envelope.treeNodeUpsertedNotification();
-          LOG_TRACE << "Received tree node upserted notification node_id=" << payload.node().nodeId().toStdString()
-                    << " origin_device_id=" << payload.originDeviceId().toStdString();
-          onNodeUpserted(fromProto(payload.node()), payload.originDeviceId());
-        } else if (envelope.hasTreeNodeDeletedNotification() && onNodeDeleted) {
-          const auto &payload = envelope.treeNodeDeletedNotification();
-          LOG_TRACE << "Received tree node deleted notification node_id=" << payload.nodeId().toStdString()
-                    << " origin_device_id=" << payload.originDeviceId().toStdString();
-          onNodeDeleted(payload.nodeId(), payload.originDeviceId());
-        } else if (envelope.hasArticlesUpdatedNotification() && onArticlesUpdated) {
-          const auto &payload = envelope.articlesUpdatedNotification();
-          LOG_TRACE << "Received articles updated notification node_id=" << payload.nodeId().toStdString()
-                    << " origin_device_id=" << payload.originDeviceId().toStdString();
-          onArticlesUpdated(payload.nodeId(), payload.originDeviceId());
-        } else if (envelope.hasUserSettingsUpdatedNotification() && onUserSettingsUpdated) {
-          const auto &payload = envelope.userSettingsUpdatedNotification();
-          LOG_TRACE << "Received user settings updated notification origin_device_id="
-                    << payload.originDeviceId().toStdString()
-                    << " default_refresh_interval_hours="
-                    << payload.settings().defaultRefreshIntervalHours();
-          onUserSettingsUpdated(fromProto(payload.settings()), payload.originDeviceId());
-        } else {
-          LOG_TRACE << "Received unhandled notification envelope";
-        }
-        continue;
-      }
-
-      std::scoped_lock lock{pending_mutex_};
-      auto it = pending_.find(envelope.requestId().toStdString());
-      if (it != pending_.end()) {
-        it->second.set_value(std::move(envelope));
-        pending_.erase(it);
-      }
+void AppClient::handleEnvelope(onerss::pb::OutgoingEnvelope envelope) {
+  emitUserNotification(envelope);
+  if (envelope.requestId().isEmpty()) {
+    if (envelope.hasTreeNodeUpsertedNotification() && onNodeUpserted) {
+      const auto &payload = envelope.treeNodeUpsertedNotification();
+      LOG_TRACE << "Received tree node upserted notification node_id=" << payload.node().nodeId().toStdString()
+                << " origin_device_id=" << payload.originDeviceId().toStdString();
+      onNodeUpserted(fromProto(payload.node()), payload.originDeviceId());
+    } else if (envelope.hasTreeNodeDeletedNotification() && onNodeDeleted) {
+      const auto &payload = envelope.treeNodeDeletedNotification();
+      LOG_TRACE << "Received tree node deleted notification node_id=" << payload.nodeId().toStdString()
+                << " origin_device_id=" << payload.originDeviceId().toStdString();
+      onNodeDeleted(payload.nodeId(), payload.originDeviceId());
+    } else if (envelope.hasArticlesUpdatedNotification() && onArticlesUpdated) {
+      const auto &payload = envelope.articlesUpdatedNotification();
+      LOG_TRACE << "Received articles updated notification node_id=" << payload.nodeId().toStdString()
+                << " origin_device_id=" << payload.originDeviceId().toStdString();
+      onArticlesUpdated(payload.nodeId(), payload.originDeviceId());
+    } else if (envelope.hasUserSettingsUpdatedNotification() && onUserSettingsUpdated) {
+      const auto &payload = envelope.userSettingsUpdatedNotification();
+      LOG_TRACE << "Received user settings updated notification origin_device_id="
+                << payload.originDeviceId().toStdString()
+                << " default_refresh_interval_hours="
+                << payload.settings().defaultRefreshIntervalHours();
+      onUserSettingsUpdated(fromProto(payload.settings()), payload.originDeviceId());
+    } else {
+      LOG_TRACE << "Received unhandled notification envelope";
     }
-  } catch (const std::exception &error) {
-    LOG_WARN << "App client reader stopped: " << error.what();
+    return;
+  }
+
+  std::scoped_lock lock{pending_mutex_};
+  auto it = pending_.find(envelope.requestId().toStdString());
+  if (it != pending_.end()) {
+    it->second.set_value(std::move(envelope));
+    pending_.erase(it);
   }
 }
 
-void AppClient::writerLoop() {
+void AppClient::ioLoop(std::promise<void> ready_promise) {
   try {
-    onerss::pb::IncomingEnvelope envelope;
-    while (outgoing_.waitPop(envelope)) {
-      if (stream_ == nullptr) {
-        break;
+    QSslSocket socket;
+    QSslConfiguration configuration = QSslConfiguration::defaultConfiguration();
+    configuration.setPeerVerifyMode(QSslSocket::VerifyPeer);
+    configuration.setProtocol(QSsl::TlsV1_2OrLater);
+
+    const auto ca_certificates = QSslCertificate::fromData(peer_.ca_certificate_pem.toUtf8(), QSsl::Pem);
+    if (ca_certificates.isEmpty()) {
+      throw std::runtime_error{"failed to parse CA certificate"};
+    }
+    configuration.setCaCertificates(ca_certificates);
+
+    const auto client_chain = QSslCertificate::fromData(peer_.client_certificate_pem.toUtf8(), QSsl::Pem);
+    if (client_chain.isEmpty()) {
+      throw std::runtime_error{"failed to parse client certificate"};
+    }
+    configuration.setLocalCertificateChain(client_chain);
+    configuration.setLocalCertificate(client_chain.front());
+
+    QSslKey private_key{peer_.client_private_key_pem.toUtf8(), QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey};
+    if (private_key.isNull()) {
+      private_key = QSslKey{peer_.client_private_key_pem.toUtf8(), QSsl::Ec, QSsl::Pem, QSsl::PrivateKey};
+    }
+    if (private_key.isNull()) {
+      throw std::runtime_error{"failed to parse client private key"};
+    }
+    configuration.setPrivateKey(private_key);
+
+    socket.setSslConfiguration(configuration);
+    socket.connectToHostEncrypted(peer_.server_host,
+                                  static_cast<quint16>(peer_.app_port),
+                                  QStringLiteral("OneRSS Signup Server"));
+    if (!socket.waitForEncrypted(30000)) {
+      throw std::runtime_error(socket.errorString().toStdString());
+    }
+    ready_promise.set_value();
+
+    while (running_) {
+      while (socket.bytesAvailable() > 0) {
+        handleEnvelope(readEnvelope<QSslSocket, onerss::pb::OutgoingEnvelope>(socket));
       }
-      writeEnvelope<stream_t, onerss::pb::IncomingEnvelope>(*stream_, envelope);
+
+      onerss::pb::IncomingEnvelope outgoing_envelope;
+      if (outgoing_.waitPopFor(outgoing_envelope, std::chrono::milliseconds{50})) {
+        writeEnvelope<QSslSocket, onerss::pb::IncomingEnvelope>(socket, outgoing_envelope);
+        continue;
+      }
+
+      if (socket.waitForReadyRead(50)) {
+        do {
+          handleEnvelope(readEnvelope<QSslSocket, onerss::pb::OutgoingEnvelope>(socket));
+        } while (socket.bytesAvailable() > 0);
+      }
     }
   } catch (const std::exception &error) {
-    LOG_WARN << "App client writer stopped: " << error.what();
+    try {
+      ready_promise.set_exception(std::make_exception_ptr(std::runtime_error{error.what()}));
+    } catch (...) {
+    }
+    LOG_WARN << "App client IO stopped: " << error.what();
   }
 }
 
 std::string AppClient::newRequestId() {
-  return boost::uuids::to_string(boost::uuids::random_generator()());
+  return QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
 }
 
 }  // namespace onerss::desktop

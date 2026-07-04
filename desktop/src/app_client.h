@@ -6,8 +6,7 @@
 #include "protocol_io.h"
 #include "tree_types.h"
 
-#include <boost/asio/ssl.hpp>
-
+#include <QSslSocket>
 #include <functional>
 #include <future>
 #include <memory>
@@ -60,23 +59,14 @@ class AppClient final {
   [[nodiscard]] QString deviceId() const;
 
  private:
-  using tcp = boost::asio::ip::tcp;
-  using ssl_context_t = boost::asio::ssl::context;
-  using ssl_stream_t = boost::asio::ssl::stream<tcp::socket>;
-  using stream_t = ssl_stream_t;
-
   [[nodiscard]] onerss::pb::OutgoingEnvelope request(const onerss::pb::IncomingEnvelope &request);
   void emitUserNotification(const onerss::pb::OutgoingEnvelope &envelope);
-  void readerLoop();
-  void writerLoop();
+  void ioLoop(std::promise<void> ready_promise);
+  void handleEnvelope(onerss::pb::OutgoingEnvelope envelope);
   static std::string newRequestId();
 
-  boost::asio::io_context io_context_;
-  ssl_context_t context_;
-  std::unique_ptr<stream_t> stream_;
   StoredPeer peer_;
-  std::thread reader_thread_;
-  std::thread writer_thread_;
+  std::thread io_thread_;
   std::mutex pending_mutex_;
   std::unordered_map<std::string, std::promise<onerss::pb::OutgoingEnvelope>> pending_;
   OutgoingMessageQueue<onerss::pb::IncomingEnvelope> outgoing_;

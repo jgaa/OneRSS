@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 
 #include <QByteArray>
+#include <QIODevice>
 #include <QtProtobuf/qabstractprotobufserializer.h>
 #include <QtProtobuf/qprotobufserializer.h>
 
@@ -15,7 +16,18 @@ namespace onerss::desktop {
 template <typename Stream, typename Envelope>
 Envelope readEnvelope(Stream &stream) {
   std::array<std::byte, 4> size_buffer{};
-  boost::asio::read(stream, boost::asio::buffer(size_buffer));
+  char *size_data = reinterpret_cast<char *>(size_buffer.data());
+  qsizetype size_read = 0;
+  while (size_read < static_cast<qsizetype>(size_buffer.size())) {
+    const auto bytes_read = stream.read(size_data + size_read, static_cast<qint64>(size_buffer.size() - size_read));
+    if (bytes_read > 0) {
+      size_read += bytes_read;
+      continue;
+    }
+    if (!stream.waitForReadyRead(30000)) {
+      throw std::runtime_error{"failed to read protobuf frame header"};
+    }
+  }
   std::uint32_t frame_size_network = 0;
   std::memcpy(&frame_size_network, size_buffer.data(), sizeof(frame_size_network));
   const auto frame_size = ntohl(frame_size_network);
@@ -24,7 +36,17 @@ Envelope readEnvelope(Stream &stream) {
   }
 
   QByteArray payload(static_cast<qsizetype>(frame_size), Qt::Uninitialized);
-  boost::asio::read(stream, boost::asio::buffer(payload.data(), static_cast<std::size_t>(payload.size())));
+  qsizetype payload_read = 0;
+  while (payload_read < payload.size()) {
+    const auto bytes_read = stream.read(payload.data() + payload_read, payload.size() - payload_read);
+    if (bytes_read > 0) {
+      payload_read += bytes_read;
+      continue;
+    }
+    if (!stream.waitForReadyRead(30000)) {
+      throw std::runtime_error{"failed to read protobuf payload"};
+    }
+  }
   Envelope envelope;
   QProtobufSerializer serializer;
   if (!envelope.deserialize(&serializer, payload)) {
@@ -42,8 +64,30 @@ void writeEnvelope(Stream &stream, const Envelope &envelope) {
   }
 
   const auto frame_size = htonl(static_cast<std::uint32_t>(payload.size()));
-  boost::asio::write(stream, boost::asio::buffer(&frame_size, sizeof(frame_size)));
-  boost::asio::write(stream, boost::asio::buffer(payload.constData(), static_cast<std::size_t>(payload.size())));
+  const char *frame_data = reinterpret_cast<const char *>(&frame_size);
+  qint64 written = 0;
+  while (written < static_cast<qint64>(sizeof(frame_size))) {
+    const auto bytes_written = stream.write(frame_data + written, static_cast<qint64>(sizeof(frame_size)) - written);
+    if (bytes_written < 0) {
+      throw std::runtime_error{"failed to write protobuf frame header"};
+    }
+    written += bytes_written;
+    if (!stream.waitForBytesWritten(30000)) {
+      throw std::runtime_error{"failed to flush protobuf frame header"};
+    }
+  }
+
+  written = 0;
+  while (written < payload.size()) {
+    const auto bytes_written = stream.write(payload.constData() + written, payload.size() - written);
+    if (bytes_written < 0) {
+      throw std::runtime_error{"failed to write protobuf payload"};
+    }
+    written += bytes_written;
+    if (!stream.waitForBytesWritten(30000)) {
+      throw std::runtime_error{"failed to flush protobuf payload"};
+    }
+  }
 }
 
 }  // namespace onerss::desktop

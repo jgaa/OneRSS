@@ -92,9 +92,3 @@ target_link_libraries(onerss-desktop
     QCoro6::Core
     QCoro6::Network
 )
-
-if(TARGET Boost::headers)
-  target_link_libraries(onerss-desktop PRIVATE Boost::headers)
-elseif(TARGET Boost::boost)
-  target_link_libraries(onerss-desktop PRIVATE Boost::boost)
-endif()

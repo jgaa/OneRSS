@@ -42,17 +42,11 @@ Dialog {
                 Label { text: qsTr("Qt version") }
                 Label { text: AppInfo.qtVersion }
 
-                Label { text: qsTr("Boost version") }
-                Label { text: AppInfo.boostVersion }
-
-                Label { text: qsTr("OpenSSL version") }
-                Label { text: AppInfo.opensslVersion }
+                Label { text: qsTr("TLS library") }
+                Label { text: AppInfo.tlsLibraryVersion }
 
                 Label { text: qsTr("Protobuf version") }
                 Label { text: AppInfo.protobufVersion }
-
-                Label { text: qsTr("SQLite version") }
-                Label { text: AppInfo.sqliteVersion }
 
                 Label { text: qsTr("Compiler") }
                 Label { text: AppInfo.compiler }

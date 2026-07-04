@@ -3,24 +3,22 @@
 #include "logging.h"
 #include "protocol_io.h"
 
-#include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
-#include <boost/uuid/random_generator.hpp>
-#include <boost/uuid/uuid_io.hpp>
+#include <QSslCertificate>
+#include <QSslConfiguration>
+#include <QSslKey>
+#include <QSslSocket>
+#include <QUuid>
 
 #include <stdexcept>
 #include <string>
 
 namespace onerss::desktop {
 namespace {
-
-using boost::asio::ip::tcp;
-namespace ssl = boost::asio::ssl;
 using onerss::pb::IncomingEnvelope;
 using onerss::pb::OutgoingEnvelope;
 
 QString newUuid() {
-  return QString::fromStdString(boost::uuids::to_string(boost::uuids::random_generator()()));
+  return QUuid::createUuid().toString(QUuid::WithoutBraces);
 }
 
 }  // namespace
@@ -33,15 +31,15 @@ onerss::pb::SignupResponse SignupClient::signupOrPair(const std::string &host,
                                                       const std::string &device_name) const {
   LOG_DEBUG << "Connecting to signup server at " << host << ":" << port;
 
-  boost::asio::io_context io_context;
-  ssl::context context{ssl::context::tls_client};
-  context.set_verify_mode(ssl::verify_none);
-
-  ssl::stream<tcp::socket> stream{io_context, context};
-  tcp::resolver resolver{io_context};
-  const auto endpoints = resolver.resolve(host, std::to_string(port));
-  boost::asio::connect(stream.next_layer(), endpoints);
-  stream.handshake(ssl::stream_base::client);
+  QSslSocket socket;
+  QSslConfiguration configuration = QSslConfiguration::defaultConfiguration();
+  configuration.setPeerVerifyMode(QSslSocket::VerifyNone);
+  configuration.setProtocol(QSsl::TlsV1_2OrLater);
+  socket.setSslConfiguration(configuration);
+  socket.connectToHostEncrypted(QString::fromStdString(host), port);
+  if (!socket.waitForEncrypted(30000)) {
+    throw std::runtime_error(socket.errorString().toStdString());
+  }
   LOG_TRACE << "TLS handshake completed with signup server";
 
   IncomingEnvelope request_envelope;
@@ -54,8 +52,8 @@ onerss::pb::SignupResponse SignupClient::signupOrPair(const std::string &host,
   payload.setDeviceName(QString::fromStdString(device_name));
   request_envelope.setSignupRequest(std::move(payload));
 
-  writeEnvelope<ssl::stream<tcp::socket>, IncomingEnvelope>(stream, request_envelope);
-  const auto response = readEnvelope<ssl::stream<tcp::socket>, OutgoingEnvelope>(stream);
+  writeEnvelope<QSslSocket, IncomingEnvelope>(socket, request_envelope);
+  const auto response = readEnvelope<QSslSocket, OutgoingEnvelope>(socket);
   if (response.hasError()) {
     throw std::runtime_error(
       QStringLiteral("%1: %2").arg(response.error().code(), response.error().message()).toStdString());
@@ -66,7 +64,7 @@ onerss::pb::SignupResponse SignupClient::signupOrPair(const std::string &host,
 
   LOG_INFO << "Signup completed for user_id=" << response.signupResponse().userId().toStdString()
            << " device_id=" << response.signupResponse().deviceId().toStdString();
-  stream.shutdown();
+  socket.disconnectFromHost();
   return response.signupResponse();
 }
 

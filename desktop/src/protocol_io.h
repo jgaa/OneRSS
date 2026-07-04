@@ -1,7 +1,6 @@
 #pragma once
 
-#include <boost/asio.hpp>
-
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -28,6 +27,18 @@ class OutgoingMessageQueue final {
   bool waitPop(Envelope &envelope) {
     std::unique_lock lock{mutex_};
     condition_.wait(lock, [this]() { return closed_ || !queue_.empty(); });
+    if (queue_.empty()) {
+      return false;
+    }
+    envelope = std::move(queue_.front());
+    queue_.pop();
+    return true;
+  }
+
+  template <typename Rep, typename Period>
+  bool waitPopFor(Envelope &envelope, const std::chrono::duration<Rep, Period> &timeout) {
+    std::unique_lock lock{mutex_};
+    condition_.wait_for(lock, timeout, [this]() { return closed_ || !queue_.empty(); });
     if (queue_.empty()) {
       return false;
     }
