@@ -2,10 +2,13 @@
 
 #include <arpa/inet.h>
 
+#include <QByteArray>
+#include <QtProtobuf/qabstractprotobufserializer.h>
+#include <QtProtobuf/qprotobufserializer.h>
+
 #include <array>
 #include <cstring>
 #include <stdexcept>
-#include <vector>
 
 namespace onerss::desktop {
 
@@ -20,10 +23,11 @@ Envelope readEnvelope(Stream &stream) {
     throw std::runtime_error{"received invalid frame size from server"};
   }
 
-  std::vector<char> payload(frame_size);
-  boost::asio::read(stream, boost::asio::buffer(payload));
+  QByteArray payload(static_cast<qsizetype>(frame_size), Qt::Uninitialized);
+  boost::asio::read(stream, boost::asio::buffer(payload.data(), static_cast<std::size_t>(payload.size())));
   Envelope envelope;
-  if (!envelope.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+  QProtobufSerializer serializer;
+  if (!envelope.deserialize(&serializer, payload)) {
     throw std::runtime_error{"failed to parse protobuf envelope"};
   }
   return envelope;
@@ -31,14 +35,15 @@ Envelope readEnvelope(Stream &stream) {
 
 template <typename Stream, typename Envelope>
 void writeEnvelope(Stream &stream, const Envelope &envelope) {
-  std::string payload;
-  if (!envelope.SerializeToString(&payload)) {
+  QProtobufSerializer serializer;
+  const QByteArray payload = envelope.serialize(&serializer);
+  if (serializer.lastError() != QAbstractProtobufSerializer::Error::None) {
     throw std::runtime_error{"failed to serialize protobuf envelope"};
   }
 
   const auto frame_size = htonl(static_cast<std::uint32_t>(payload.size()));
   boost::asio::write(stream, boost::asio::buffer(&frame_size, sizeof(frame_size)));
-  boost::asio::write(stream, boost::asio::buffer(payload));
+  boost::asio::write(stream, boost::asio::buffer(payload.constData(), static_cast<std::size_t>(payload.size())));
 }
 
 }  // namespace onerss::desktop

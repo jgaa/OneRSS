@@ -1,6 +1,6 @@
 #pragma once
 
-#include "onerss.pb.h"
+#include "onerss.qpb.h"
 
 #include <QString>
 #include <QVariantMap>
@@ -11,7 +11,7 @@ namespace onerss::desktop {
 struct TreeNodeData {
   QString node_id;
   QString parent_id;
-  onerss::pb::TreeNode::Type type = onerss::pb::TreeNode::TYPE_FOLDER;
+  onerss::pb::TreeNode::Type type = onerss::pb::TreeNode::Type::TYPE_FOLDER;
   QString title;
   QString feed_url;
   QString comment;

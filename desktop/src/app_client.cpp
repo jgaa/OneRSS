@@ -13,10 +13,6 @@ namespace {
 using boost::asio::ip::tcp;
 namespace ssl = boost::asio::ssl;
 
-QString toQString(const std::string &value) {
-  return QString::fromStdString(value);
-}
-
 class BackendCommandError final : public std::runtime_error {
  public:
   BackendCommandError(std::string message, UiStatusMessage ui_message)
@@ -33,13 +29,13 @@ class BackendCommandError final : public std::runtime_error {
 UserSettingsData fromProto(const onerss::pb::UserSettings &settings) {
   return UserSettingsData{
     .default_refresh_interval_hours
-    = static_cast<int>(settings.default_refresh_interval_hours() == 0 ? 12 : settings.default_refresh_interval_hours()),
+    = static_cast<int>(settings.defaultRefreshIntervalHours() == 0 ? 12 : settings.defaultRefreshIntervalHours()),
   };
 }
 
 onerss::pb::UserSettings toProto(const UserSettingsData &settings) {
   onerss::pb::UserSettings proto;
-  proto.set_default_refresh_interval_hours(static_cast<std::uint32_t>(std::max(1, settings.default_refresh_interval_hours)));
+  proto.setDefaultRefreshIntervalHours(static_cast<QtProtobuf::uint32>(std::max(1, settings.default_refresh_interval_hours)));
   return proto;
 }
 
@@ -77,12 +73,13 @@ void AppClient::connectAndStart(const StoredPeer &peer) {
   writer_thread_ = std::thread([this]() { writerLoop(); });
 
   onerss::pb::IncomingEnvelope hello;
-  hello.set_request_id(newRequestId());
-  hello.mutable_app_hello_request();
+  hello.setRequestId(QString::fromStdString(newRequestId()));
+  hello.setAppHelloRequest(onerss::pb::AppHelloRequest{});
   const auto response = request(hello);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
   LOG_INFO << "Authenticated app client as device_id=" << peer_.device_id.toStdString();
 }
@@ -104,16 +101,17 @@ void AppClient::stop() {
 
 QVector<TreeNodeData> AppClient::fetchTree() {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  request_envelope.mutable_fetch_tree_request();
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  request_envelope.setFetchTreeRequest(onerss::pb::FetchTreeRequest{});
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
 
   QVector<TreeNodeData> nodes;
-  for (const auto &node : response.tree_nodes_response().nodes()) {
+  for (const auto &node : response.treeNodesResponse().nodes()) {
     nodes.push_back(fromProto(node));
   }
   return nodes;
@@ -121,100 +119,114 @@ QVector<TreeNodeData> AppClient::fetchTree() {
 
 UserSettingsData AppClient::fetchUserSettings() {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  request_envelope.mutable_get_user_settings_request();
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  request_envelope.setGetUserSettingsRequest(onerss::pb::GetUserSettingsRequest{});
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
-  return fromProto(response.user_settings_response().settings());
+  return fromProto(response.userSettingsResponse().settings());
 }
 
 UserSettingsData AppClient::updateUserSettings(const UserSettingsData &settings) {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  *request_envelope.mutable_update_user_settings_request()->mutable_settings() = toProto(settings);
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::UpdateUserSettingsRequest payload;
+  payload.setSettings(toProto(settings));
+  request_envelope.setUpdateUserSettingsRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
-  return fromProto(response.user_settings_response().settings());
+  return fromProto(response.userSettingsResponse().settings());
 }
 
 int AppClient::fetchUnreadCount() {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  request_envelope.mutable_get_unread_count_request();
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  request_envelope.setGetUnreadCountRequest(onerss::pb::GetUnreadCountRequest{});
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
-  return static_cast<int>(response.unread_count_response().unread_count());
+  return static_cast<int>(response.unreadCountResponse().unreadCount());
 }
 
 ArticlePage AppClient::fetchArticles(const QString &node_id, const int offset, const int limit) {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  auto *payload = request_envelope.mutable_fetch_articles_request();
-  payload->set_node_id(node_id == QStringLiteral("__root__") ? std::string{} : node_id.toStdString());
-  payload->set_offset(static_cast<std::uint32_t>(std::max(0, offset)));
-  payload->set_limit(static_cast<std::uint32_t>(std::max(0, limit)));
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::FetchArticlesRequest payload;
+  payload.setNodeId(node_id == QStringLiteral("__root__") ? QString{} : node_id);
+  payload.setOffset(static_cast<QtProtobuf::uint32>(std::max(0, offset)));
+  payload.setLimit(static_cast<QtProtobuf::uint32>(std::max(0, limit)));
+  request_envelope.setFetchArticlesRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
 
   ArticlePage page;
-  for (const auto &article : response.articles_response().articles()) {
+  for (const auto &article : response.articlesResponse().articles()) {
     page.articles.push_back(fromProto(article));
   }
-  page.has_more = response.articles_response().has_more();
-  page.next_offset = static_cast<int>(response.articles_response().next_offset());
+  page.has_more = response.articlesResponse().hasMore();
+  page.next_offset = static_cast<int>(response.articlesResponse().nextOffset());
   return page;
 }
 
 int AppClient::markArticleRead(const QString &node_id, const QString &article_id) {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  auto *payload = request_envelope.mutable_mark_article_read_request();
-  payload->set_node_id(node_id.toStdString());
-  payload->set_article_id(article_id.toStdString());
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::MarkArticleReadRequest payload;
+  payload.setNodeId(node_id);
+  payload.setArticleId(article_id);
+  request_envelope.setMarkArticleReadRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
-  return static_cast<int>(response.mark_articles_read_response().changed_count());
+  return static_cast<int>(response.markArticlesReadResponse().changedCount());
 }
 
 int AppClient::markAllArticlesRead(const QString &node_id) {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  request_envelope.mutable_mark_all_articles_read_request()->set_node_id(node_id.toStdString());
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::MarkAllArticlesReadRequest payload;
+  payload.setNodeId(node_id);
+  request_envelope.setMarkAllArticlesReadRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
-  return static_cast<int>(response.mark_articles_read_response().changed_count());
+  return static_cast<int>(response.markArticlesReadResponse().changedCount());
 }
 
 TreeNodeData AppClient::createFolder(const QString &parent_id, const QString &title) {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  auto *payload = request_envelope.mutable_create_folder_request();
-  payload->set_parent_id(parent_id.toStdString());
-  payload->set_title(title.toStdString());
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::CreateFolderRequest payload;
+  payload.setParentId(parent_id);
+  payload.setTitle(title);
+  request_envelope.setCreateFolderRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
-  return fromProto(response.tree_node_response().node());
+  return fromProto(response.treeNodeResponse().node());
 }
 
 TreeNodeData AppClient::createFeed(const QString &parent_id,
@@ -222,50 +234,60 @@ TreeNodeData AppClient::createFeed(const QString &parent_id,
                                    const QString &feed_url,
                                    const QString &comment) {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  auto *payload = request_envelope.mutable_create_feed_request();
-  payload->set_parent_id(parent_id.toStdString());
-  payload->set_title(title.toStdString());
-  payload->set_feed_url(feed_url.toStdString());
-  payload->set_comment(comment.toStdString());
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::CreateFeedRequest payload;
+  payload.setParentId(parent_id);
+  payload.setTitle(title);
+  payload.setFeedUrl(feed_url);
+  payload.setComment(comment);
+  request_envelope.setCreateFeedRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
-  return fromProto(response.tree_node_response().node());
+  return fromProto(response.treeNodeResponse().node());
 }
 
 TreeNodeData AppClient::updateNode(const TreeNodeData &node) {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  *request_envelope.mutable_update_node_request()->mutable_node() = toProto(node);
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::UpdateNodeRequest payload;
+  payload.setNode(toProto(node));
+  request_envelope.setUpdateNodeRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
-  return fromProto(response.tree_node_response().node());
+  return fromProto(response.treeNodeResponse().node());
 }
 
 void AppClient::deleteNode(const QString &node_id) {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  request_envelope.mutable_delete_node_request()->set_node_id(node_id.toStdString());
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::DeleteNodeRequest payload;
+  payload.setNodeId(node_id);
+  request_envelope.setDeleteNodeRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
-  if (response.has_error()) {
-    throw BackendCommandError{response.error().message(), toUiStatusMessage(response.error().user_notification())};
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
   }
 }
 
 void AppClient::refreshFeed(const QString &node_id) {
   onerss::pb::IncomingEnvelope request_envelope;
-  request_envelope.set_request_id(newRequestId());
-  request_envelope.mutable_refresh_feed_request()->set_node_id(node_id.toStdString());
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::RefreshFeedRequest payload;
+  payload.setNodeId(node_id);
+  request_envelope.setRefreshFeedRequest(std::move(payload));
   const auto response = request(request_envelope);
-  if (response.has_error()) {
-    throw std::runtime_error{response.error().message()};
+  if (response.hasError()) {
+    throw std::runtime_error{response.error().message().toStdString()};
   }
 }
 
@@ -278,15 +300,15 @@ onerss::pb::OutgoingEnvelope AppClient::request(const onerss::pb::IncomingEnvelo
   auto future = promise.get_future();
   {
     std::scoped_lock lock{pending_mutex_};
-    pending_.emplace(request_envelope.request_id(), std::move(promise));
+    pending_.emplace(request_envelope.requestId().toStdString(), std::move(promise));
   }
   outgoing_.push(request_envelope);
   return future.get();
 }
 
 void AppClient::emitUserNotification(const onerss::pb::OutgoingEnvelope &envelope) {
-  if (envelope.has_user_notification() && onUserNotification) {
-    onUserNotification(toUiStatusMessage(envelope.user_notification()));
+  if (envelope.hasUserNotification() && onUserNotification) {
+    onUserNotification(toUiStatusMessage(envelope.userNotification()));
   }
 }
 
@@ -295,29 +317,29 @@ void AppClient::readerLoop() {
     while (running_ && stream_ != nullptr) {
       auto envelope = readEnvelope<stream_t, onerss::pb::OutgoingEnvelope>(*stream_);
       emitUserNotification(envelope);
-      if (envelope.request_id().empty()) {
-        if (envelope.has_tree_node_upserted_notification() && onNodeUpserted) {
-          const auto &payload = envelope.tree_node_upserted_notification();
-          LOG_TRACE << "Received tree node upserted notification node_id=" << payload.node().node_id()
-                    << " origin_device_id=" << payload.origin_device_id();
-          onNodeUpserted(fromProto(payload.node()), toQString(payload.origin_device_id()));
-        } else if (envelope.has_tree_node_deleted_notification() && onNodeDeleted) {
-          const auto &payload = envelope.tree_node_deleted_notification();
-          LOG_TRACE << "Received tree node deleted notification node_id=" << payload.node_id()
-                    << " origin_device_id=" << payload.origin_device_id();
-          onNodeDeleted(toQString(payload.node_id()), toQString(payload.origin_device_id()));
-        } else if (envelope.has_articles_updated_notification() && onArticlesUpdated) {
-          const auto &payload = envelope.articles_updated_notification();
-          LOG_TRACE << "Received articles updated notification node_id=" << payload.node_id()
-                    << " origin_device_id=" << payload.origin_device_id();
-          onArticlesUpdated(toQString(payload.node_id()), toQString(payload.origin_device_id()));
-        } else if (envelope.has_user_settings_updated_notification() && onUserSettingsUpdated) {
-          const auto &payload = envelope.user_settings_updated_notification();
+      if (envelope.requestId().isEmpty()) {
+        if (envelope.hasTreeNodeUpsertedNotification() && onNodeUpserted) {
+          const auto &payload = envelope.treeNodeUpsertedNotification();
+          LOG_TRACE << "Received tree node upserted notification node_id=" << payload.node().nodeId().toStdString()
+                    << " origin_device_id=" << payload.originDeviceId().toStdString();
+          onNodeUpserted(fromProto(payload.node()), payload.originDeviceId());
+        } else if (envelope.hasTreeNodeDeletedNotification() && onNodeDeleted) {
+          const auto &payload = envelope.treeNodeDeletedNotification();
+          LOG_TRACE << "Received tree node deleted notification node_id=" << payload.nodeId().toStdString()
+                    << " origin_device_id=" << payload.originDeviceId().toStdString();
+          onNodeDeleted(payload.nodeId(), payload.originDeviceId());
+        } else if (envelope.hasArticlesUpdatedNotification() && onArticlesUpdated) {
+          const auto &payload = envelope.articlesUpdatedNotification();
+          LOG_TRACE << "Received articles updated notification node_id=" << payload.nodeId().toStdString()
+                    << " origin_device_id=" << payload.originDeviceId().toStdString();
+          onArticlesUpdated(payload.nodeId(), payload.originDeviceId());
+        } else if (envelope.hasUserSettingsUpdatedNotification() && onUserSettingsUpdated) {
+          const auto &payload = envelope.userSettingsUpdatedNotification();
           LOG_TRACE << "Received user settings updated notification origin_device_id="
-                    << payload.origin_device_id()
+                    << payload.originDeviceId().toStdString()
                     << " default_refresh_interval_hours="
-                    << payload.settings().default_refresh_interval_hours();
-          onUserSettingsUpdated(fromProto(payload.settings()), toQString(payload.origin_device_id()));
+                    << payload.settings().defaultRefreshIntervalHours();
+          onUserSettingsUpdated(fromProto(payload.settings()), payload.originDeviceId());
         } else {
           LOG_TRACE << "Received unhandled notification envelope";
         }
@@ -325,7 +347,7 @@ void AppClient::readerLoop() {
       }
 
       std::scoped_lock lock{pending_mutex_};
-      auto it = pending_.find(envelope.request_id());
+      auto it = pending_.find(envelope.requestId().toStdString());
       if (it != pending_.end()) {
         it->second.set_value(std::move(envelope));
         pending_.erase(it);

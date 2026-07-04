@@ -38,8 +38,11 @@ if (NOT ANDROID)
   find_package(OpenSSL REQUIRED)
 endif()
 
-if(ONERSS_BUILD_BACKEND)
+if(ONERSS_BUILD_BACKEND OR ONERSS_BUILD_DESKTOP)
   add_subdirectory(proto)
+endif()
+
+if(ONERSS_BUILD_BACKEND)
   add_subdirectory(backend)
 endif()
 

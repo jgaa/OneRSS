@@ -40,18 +40,29 @@ void SecretStore::storeSignupMaterial(const onerss::pb::SignupResponse &response
                                       const QString &server_host,
                                       const int signup_port) const {
   auto vault = openVault();
-  LOG_DEBUG << "Persisting enrollment material for user_id=" << response.user_id()
-            << " device_id=" << response.device_id();
+  LOG_DEBUG << "Persisting enrollment material for user_id=" << response.userId().toStdString()
+            << " device_id=" << response.deviceId().toStdString();
 
-  storeRequiredSecret(*vault, "user.id", response.user_id());
-  storeRequiredSecret(*vault, "user.login", response.login());
-  storeRequiredSecret(*vault, "device.id", response.device_id());
-  storeRequiredSecret(*vault, "tls.ca_cert", response.ca_certificate_pem());
-  storeRequiredSecret(*vault, "tls.client_cert", response.client_certificate_pem());
-  storeRequiredSecret(*vault, "tls.client_key", response.client_private_key_pem());
+  const auto &ca_certificate = response.caCertificatePem();
+  const auto &client_certificate = response.clientCertificatePem();
+  const auto &client_key = response.clientPrivateKeyPem();
+
+  storeRequiredSecret(*vault, "user.id", response.userId().toStdString());
+  storeRequiredSecret(*vault, "user.login", response.login().toStdString());
+  storeRequiredSecret(*vault, "device.id", response.deviceId().toStdString());
+  storeRequiredSecret(*vault,
+                      "tls.ca_cert",
+                      std::string_view{ca_certificate.constData(), static_cast<std::size_t>(ca_certificate.size())});
+  storeRequiredSecret(*vault,
+                      "tls.client_cert",
+                      std::string_view{client_certificate.constData(),
+                                       static_cast<std::size_t>(client_certificate.size())});
+  storeRequiredSecret(*vault,
+                      "tls.client_key",
+                      std::string_view{client_key.constData(), static_cast<std::size_t>(client_key.size())});
   storeRequiredSecret(*vault, "server.host", server_host.toStdString());
   storeRequiredSecret(*vault, "server.signup_port", std::to_string(signup_port));
-  storeRequiredSecret(*vault, "server.app_port", std::to_string(static_cast<int>(response.app_port())));
+  storeRequiredSecret(*vault, "server.app_port", std::to_string(static_cast<int>(response.appPort())));
 }
 
 StoredPeer SecretStore::loadPeer() const {

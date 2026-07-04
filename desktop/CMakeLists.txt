@@ -75,7 +75,7 @@ target_include_directories(onerss-desktop
 
 target_link_libraries(onerss-desktop
   PRIVATE
-    onerss_proto
+    onerss_qt_proto
     logfault
     $<$<NOT:$<BOOL:${ANDROID}>>:safekeeping>
     $<$<NOT:$<BOOL:${ANDROID}>>:OpenSSL::SSL>
@@ -84,6 +84,7 @@ target_link_libraries(onerss-desktop
     Qt6::Core
     Qt6::Gui
     Qt6::Network
+    Qt6::Protobuf
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2

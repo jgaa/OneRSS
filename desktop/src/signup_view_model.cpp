@@ -125,9 +125,7 @@ void SignupViewModel::startRequest(const bool create_account) {
       const auto response = signup_client_.signupOrPair(
         host, static_cast<std::uint16_t>(port), create_account, login, password, device_name);
       secret_store_.storeSignupMaterial(response, QString::fromStdString(host), port);
-      const auto status = QStringLiteral("Success: %1 (%2)")
-                            .arg(QString::fromStdString(response.user_id()),
-                                 QString::fromStdString(response.device_id()));
+      const auto status = QStringLiteral("Success: %1 (%2)").arg(response.userId(), response.deviceId());
       QMetaObject::invokeMethod(this,
                                 [this, status]() {
                                   setBusy(false);

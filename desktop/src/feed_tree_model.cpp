@@ -8,7 +8,7 @@ FeedTreeModel::FeedTreeModel(QObject *parent) : QAbstractListModel(parent) {
   root_node_ = TreeNodeData{
     .node_id = QStringLiteral("__root__"),
     .parent_id = {},
-    .type = onerss::pb::TreeNode::TYPE_FOLDER,
+    .type = onerss::pb::TreeNode::Type::TYPE_FOLDER,
     .title = tr("All Feeds"),
     .feed_url = {},
     .comment = {},

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "onerss.pb.h"
+#include "onerss.qpb.h"
 
 #include <cstdint>
 #include <string>
