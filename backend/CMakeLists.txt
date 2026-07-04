@@ -1,5 +1,6 @@
 find_package(Boost REQUIRED COMPONENTS program_options)
 find_package(SQLite3 REQUIRED)
+find_package(Protobuf REQUIRED)
 
 if(NOT TARGET SQLite3::SQLite3 AND TARGET SQLite::SQLite3)
   add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)

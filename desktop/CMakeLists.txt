@@ -1,4 +1,11 @@
-set(QCORO_WITH_QTDBUS ON CACHE BOOL "" FORCE)
+
+if (LINUX)
+  set(QCORO_WITH_QTDBUS ON CACHE BOOL "" FORCE)
+  set(SAFEKEEPING_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(SAFEKEEPING_ENABLE_KWALLET ON CACHE BOOL "" FORCE)
+else()
+  set(QCORO_WITH_QTDBUS OFF CACHE BOOL "" FORCE)
+endif()
 set(QCORO_WITH_QTNETWORK ON CACHE BOOL "" FORCE)
 set(QCORO_WITH_QTWEBSOCKETS OFF CACHE BOOL "" FORCE)
 set(QCORO_WITH_QTQUICK OFF CACHE BOOL "" FORCE)
@@ -6,21 +13,20 @@ set(QCORO_WITH_QML OFF CACHE BOOL "" FORCE)
 set(QCORO_WITH_QTTEST OFF CACHE BOOL "" FORCE)
 set(QCORO_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(QCORO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SAFEKEEPING_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(SAFEKEEPING_ENABLE_KWALLET ON CACHE BOOL "" FORCE)
 
 onerss_fetch(qcoro
   GIT_REPOSITORY https://github.com/qcoro/qcoro.git
   GIT_TAG        main
 )
 
-onerss_fetch(safekeeping
-  GIT_REPOSITORY https://github.com/jgaa/SafeKeeping.git
-  GIT_TAG        main
-)
+if (NOT ANDROID)
+  onerss_fetch(safekeeping
+    GIT_REPOSITORY https://github.com/jgaa/SafeKeeping.git
+    GIT_TAG        main
+  )
+endif()
 
-find_package(Boost REQUIRED)
-find_package(Qt6 6.10 REQUIRED COMPONENTS Concurrent Core Gui Network Qml Quick QuickControls2 Widgets)
+find_package(Qt6 6.10 REQUIRED COMPONENTS Concurrent Core Gui Network Qml Quick QuickControls2 Widgets Protobuf)
 
 qt_standard_project_setup(REQUIRES 6.10)
 
@@ -71,9 +77,9 @@ target_link_libraries(onerss-desktop
   PRIVATE
     onerss_proto
     logfault
-    safekeeping
-    OpenSSL::SSL
-    OpenSSL::Crypto
+    $<$<NOT:$<BOOL:${ANDROID}>>:safekeeping>
+    $<$<NOT:$<BOOL:${ANDROID}>>:OpenSSL::SSL>
+    $<$<NOT:$<BOOL:${ANDROID}>>:OpenSSL::Crypto>
     Qt6::Concurrent
     Qt6::Core
     Qt6::Gui
