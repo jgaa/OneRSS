@@ -19,8 +19,16 @@
 #include <boost/property_tree/xml_parser.hpp>
 
 #include <future>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <optional>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
+#include <unordered_map>
 
 namespace onerss::backend {
 namespace {
@@ -180,6 +188,138 @@ std::string firstNonEmpty(std::initializer_list<std::string> values) {
   return {};
 }
 
+std::string trim(std::string value) {
+  const auto not_space = [](const unsigned char ch) { return !std::isspace(ch); };
+  value.erase(value.begin(), std::find_if(value.begin(), value.end(), not_space));
+  value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(), value.end());
+  return value;
+}
+
+int monthNumber(const std::string_view month) {
+  static const std::unordered_map<std::string_view, int> months{
+    {"Jan", 1}, {"Feb", 2}, {"Mar", 3}, {"Apr", 4}, {"May", 5}, {"Jun", 6},
+    {"Jul", 7}, {"Aug", 8}, {"Sep", 9}, {"Oct", 10}, {"Nov", 11}, {"Dec", 12},
+  };
+  const auto it = months.find(month);
+  return it != months.end() ? it->second : 0;
+}
+
+std::optional<int> timezoneOffsetMinutes(const std::string &value) {
+  static const std::unordered_map<std::string, int> named_offsets{
+    {"UT", 0},   {"UTC", 0},  {"GMT", 0},  {"EST", -5 * 60}, {"EDT", -4 * 60},
+    {"CST", -6 * 60},         {"CDT", -5 * 60},              {"MST", -7 * 60},
+    {"MDT", -6 * 60},         {"PST", -8 * 60},              {"PDT", -7 * 60},
+  };
+
+  if (const auto it = named_offsets.find(value); it != named_offsets.end()) {
+    return it->second;
+  }
+
+  static const std::regex numeric_pattern{R"(^([+-])(\d{2}):?(\d{2})$)"};
+  std::smatch match;
+  if (!std::regex_match(value, match, numeric_pattern)) {
+    return std::nullopt;
+  }
+
+  const int hours = std::stoi(match[2].str());
+  const int minutes = std::stoi(match[3].str());
+  const int sign = match[1].str() == "-" ? -1 : 1;
+  return sign * (hours * 60 + minutes);
+}
+
+std::optional<std::time_t> parseIsoTimestamp(const std::string &value) {
+  static const std::regex pattern{
+    R"(^\s*(\d{4})-(\d{2})-(\d{2})(?:[Tt\s](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?(?:\s*(Z|[+-]\d{2}:?\d{2}))?\s*$)"
+  };
+  std::smatch match;
+  if (!std::regex_match(value, match, pattern)) {
+    return std::nullopt;
+  }
+
+  std::tm tm{};
+  tm.tm_year = std::stoi(match[1].str()) - 1900;
+  tm.tm_mon = std::stoi(match[2].str()) - 1;
+  tm.tm_mday = std::stoi(match[3].str());
+  tm.tm_hour = match[4].matched ? std::stoi(match[4].str()) : 0;
+  tm.tm_min = match[5].matched ? std::stoi(match[5].str()) : 0;
+  tm.tm_sec = match[6].matched ? std::stoi(match[6].str()) : 0;
+
+  const auto offset_minutes = match[7].matched && !match[7].str().empty()
+                                ? timezoneOffsetMinutes(match[7].str())
+                                : std::optional<int>{0};
+  if (!offset_minutes.has_value()) {
+    return std::nullopt;
+  }
+
+  const auto utc = timegm(&tm) - (*offset_minutes * 60);
+  return utc;
+}
+
+std::optional<std::time_t> parseRfcTimestamp(const std::string &value) {
+  static const std::regex pattern{
+    R"(^\s*(?:[A-Za-z]{3},\s*)?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2,4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+([A-Za-z+-0-9:]+)\s*$)"
+  };
+  std::smatch match;
+  if (!std::regex_match(value, match, pattern)) {
+    return std::nullopt;
+  }
+
+  const int month = monthNumber(match[2].str());
+  if (month == 0) {
+    return std::nullopt;
+  }
+
+  int year = std::stoi(match[3].str());
+  if (match[3].str().size() == 2) {
+    year += year < 50 ? 2000 : 1900;
+  }
+
+  const auto offset_minutes = timezoneOffsetMinutes(match[7].str());
+  if (!offset_minutes.has_value()) {
+    return std::nullopt;
+  }
+
+  std::tm tm{};
+  tm.tm_year = year - 1900;
+  tm.tm_mon = month - 1;
+  tm.tm_mday = std::stoi(match[1].str());
+  tm.tm_hour = std::stoi(match[4].str());
+  tm.tm_min = std::stoi(match[5].str());
+  tm.tm_sec = match[6].matched ? std::stoi(match[6].str()) : 0;
+
+  const auto utc = timegm(&tm) - (*offset_minutes * 60);
+  return utc;
+}
+
+std::string normalizePublicationTimestamp(const std::string &value) {
+  const auto trimmed = trim(value);
+  if (trimmed.empty()) {
+    return {};
+  }
+
+  auto parsed = parseIsoTimestamp(trimmed);
+  if (!parsed.has_value()) {
+    parsed = parseRfcTimestamp(trimmed);
+  }
+  if (!parsed.has_value()) {
+    return trimmed;
+  }
+
+  std::tm utc_tm{};
+  gmtime_r(&*parsed, &utc_tm);
+  char buffer[64];
+  std::snprintf(buffer,
+                sizeof(buffer),
+                "%04d-%02d-%02dT%02d:%02d:%02dZ",
+                utc_tm.tm_year + 1900,
+                utc_tm.tm_mon + 1,
+                utc_tm.tm_mday,
+                utc_tm.tm_hour,
+                utc_tm.tm_min,
+                utc_tm.tm_sec);
+  return buffer;
+}
+
 std::vector<ArticleRecord> parseRss(const boost::property_tree::ptree &channel, const TreeNodeRecord &feed_node) {
   std::vector<ArticleRecord> articles;
   for (const auto &entry : channel) {
@@ -202,7 +342,8 @@ std::vector<ArticleRecord> parseRss(const boost::property_tree::ptree &channel, 
       .guid = guid,
       .title = title,
       .link_url = link,
-      .published_at = firstNonEmpty({childValue(item, "pubDate"), childValue(item, "dc:date")}),
+      .published_at = normalizePublicationTimestamp(firstNonEmpty({childValue(item, "pubDate"),
+                                                                   childValue(item, "dc:date")})),
       .author = firstNonEmpty({childValue(item, "author"), childValue(item, "dc:creator")}),
       .content = sanitizePreviewHtml(firstNonEmpty({childValue(item, "content:encoded"), childValue(item, "description")})),
     });
@@ -241,7 +382,8 @@ std::vector<ArticleRecord> parseAtom(const boost::property_tree::ptree &feed, co
       .guid = guid,
       .title = title,
       .link_url = link,
-      .published_at = firstNonEmpty({childValue(item, "updated"), childValue(item, "published")}),
+      .published_at = normalizePublicationTimestamp(firstNonEmpty({childValue(item, "updated"),
+                                                                   childValue(item, "published")})),
       .author = childValue(item, "author.name"),
       .content = sanitizePreviewHtml(firstNonEmpty({childValue(item, "content"), childValue(item, "summary")})),
     });

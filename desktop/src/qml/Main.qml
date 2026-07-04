@@ -11,6 +11,11 @@ ApplicationWindow {
     title: Qt.application.name
     color: "#f3efe7"
     onClosing: function(close) {
+        if (handleBackNavigation()) {
+            close.accepted = false
+            return
+        }
+
         if (typeof trayController !== "undefined" && trayController && trayController.trayAvailable) {
             close.accepted = false
             hide()
@@ -31,6 +36,29 @@ ApplicationWindow {
         default:
             return "#546e7a"
         }
+    }
+
+    function handleBackNavigation() {
+        if (!narrowLayout) {
+            return false
+        }
+
+        if (narrowPageIndex === 2) {
+            narrowPageIndex = 1
+            return true
+        }
+
+        if (narrowPageIndex === 1) {
+            narrowPageIndex = 0
+            return true
+        }
+
+        return true
+    }
+
+    Shortcut {
+        sequence: StandardKey.Back
+        onActivated: handleBackNavigation()
     }
 
     function openAddFolderDialog(nodeId) {
@@ -123,6 +151,8 @@ ApplicationWindow {
     }
 
     menuBar: MenuBar {
+        visible: !narrowLayout
+
         Menu {
             title: qsTr("File")
 
@@ -159,6 +189,36 @@ ApplicationWindow {
     SettingsDialog { id: settingsDialog; parent: Overlay.overlay }
     AboutDialog { id: aboutDialog; parent: Overlay.overlay }
     SignupDialog { id: signupDialog; parent: Overlay.overlay }
+
+    Menu {
+        id: narrowAppMenu
+
+        Action {
+            text: qsTr("Sign Up / Pair Device...")
+            onTriggered: signupDialog.open()
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: qsTr("Settings")
+            onTriggered: settingsDialog.open()
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: qsTr("About")
+            onTriggered: aboutDialog.open()
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: qsTr("Quit")
+            onTriggered: Qt.quit()
+        }
+    }
 
     Connections {
         target: mainViewModel
@@ -457,16 +517,38 @@ ApplicationWindow {
 
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: 30
+            implicitHeight: narrowLayout ? 52 : 0
+            visible: narrowLayout
             color: "#e9e0d3"
 
-            Label {
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.left: parent.left
-                anchors.leftMargin: 12
-                text: mainViewModel.connectionStatus
-                font.pixelSize: 13
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 8
+                anchors.rightMargin: 12
+                spacing: 10
+
+                ToolButton {
+                    text: "\u2630"
+                    font.pixelSize: 22
+                    onClicked: narrowAppMenu.popup()
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: Qt.application.name
+                    font.pixelSize: 20
+                    font.bold: true
+                    elide: Text.ElideRight
+                    color: "#263238"
+                }
             }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 0
+            color: "#e9e0d3"
+            visible: false
         }
 
         Item {
@@ -510,6 +592,9 @@ ApplicationWindow {
                     }
                     onDeleteRequested: function(nodeId) {
                         openDeleteDialog(nodeId)
+                    }
+                    onMoveNodeRequested: function(nodeId, newParentId) {
+                        mainViewModel.moveNode(nodeId, newParentId)
                     }
                 }
 
@@ -577,6 +662,9 @@ ApplicationWindow {
                     onDeleteRequested: function(nodeId) {
                         openDeleteDialog(nodeId)
                     }
+                    onMoveNodeRequested: function(nodeId, newParentId) {
+                        mainViewModel.moveNode(nodeId, newParentId)
+                    }
                 }
 
                 ArticleListPane {
@@ -613,10 +701,29 @@ ApplicationWindow {
             color: mainViewModel.statusBarText.length > 0 ? statusColor : "#dde3e6"
             visible: true
 
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                width: 12
+                height: 12
+                radius: 6
+                color: {
+                    switch (mainViewModel.connectionState) {
+                    case 2:
+                        return "#2e7d32"
+                    case 1:
+                        return "#d17a00"
+                    default:
+                        return "#b3261e"
+                    }
+                }
+            }
+
             Label {
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
-                anchors.leftMargin: 12
+                anchors.leftMargin: 34
                 anchors.right: parent.right
                 anchors.rightMargin: 12
                 elide: Text.ElideRight

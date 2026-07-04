@@ -12,6 +12,7 @@ namespace onerss::desktop {
 
 class MainViewModel final : public QObject {
   Q_OBJECT
+  Q_PROPERTY(int connectionState READ connectionState NOTIFY connectionStatusChanged)
   Q_PROPERTY(FeedTreeModel *feedTreeModel READ feedTreeModel CONSTANT)
   Q_PROPERTY(ArticleListModel *articleListModel READ articleListModel CONSTANT)
   Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
@@ -35,6 +36,7 @@ class MainViewModel final : public QObject {
 
   [[nodiscard]] FeedTreeModel *feedTreeModel();
   [[nodiscard]] ArticleListModel *articleListModel();
+  [[nodiscard]] int connectionState() const;
   [[nodiscard]] QString connectionStatus() const;
   [[nodiscard]] QString statusBarText() const;
   [[nodiscard]] QString statusBarDetail() const;
@@ -67,6 +69,7 @@ class MainViewModel final : public QObject {
                                  int refresh_interval_hours);
   Q_INVOKABLE void deleteNode(const QString &node_id);
   Q_INVOKABLE void refreshFeed(const QString &node_id);
+  Q_INVOKABLE void moveNode(const QString &node_id, const QString &parent_id);
   Q_INVOKABLE void selectNode(const QString &node_id);
   Q_INVOKABLE void selectArticleRow(int row);
   Q_INVOKABLE void markAllArticlesRead(const QString &node_id);

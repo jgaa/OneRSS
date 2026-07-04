@@ -101,12 +101,46 @@ void FeedTreeModel::toggleExpanded(const QString &node_id) {
   rebuildVisible();
 }
 
+void FeedTreeModel::expandNode(const QString &node_id) {
+  if (node_id.isEmpty() || expanded_nodes_.contains(node_id)) {
+    return;
+  }
+  expanded_nodes_.insert(node_id);
+  rebuildVisible();
+}
+
 QVariantMap FeedTreeModel::nodeData(const QString &node_id) const {
   if (node_id == root_node_.node_id) {
     return root_node_.toVariantMap();
   }
   const auto it = nodes_.find(node_id);
   return it != nodes_.end() ? it->toVariantMap() : QVariantMap{};
+}
+
+bool FeedTreeModel::canReparent(const QString &node_id, const QString &parent_id) const {
+  const auto node_it = nodes_.find(node_id);
+  if (node_it == nodes_.end()) {
+    return false;
+  }
+  if (node_id == parent_id || node_it->parent_id == parent_id) {
+    return false;
+  }
+  if (!parent_id.isEmpty()) {
+    if (parent_id == root_node_.node_id) {
+      return false;
+    }
+    const auto parent_it = nodes_.find(parent_id);
+    if (parent_it == nodes_.end()) {
+      return false;
+    }
+    if (parent_it->type != onerss::pb::TreeNode::Type::TYPE_FOLDER) {
+      return false;
+    }
+    if (isDescendantOf(parent_id, node_id)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void FeedTreeModel::rebuildVisible() {
@@ -157,6 +191,21 @@ QVector<QString> FeedTreeModel::childrenOf(const QString &parent_id) const {
     return a.title.localeAwareCompare(b.title) < 0;
   });
   return children;
+}
+
+bool FeedTreeModel::isDescendantOf(const QString &node_id, const QString &ancestor_id) const {
+  auto current_id = node_id;
+  while (!current_id.isEmpty()) {
+    if (current_id == ancestor_id) {
+      return true;
+    }
+    const auto current_it = nodes_.find(current_id);
+    if (current_it == nodes_.end()) {
+      return false;
+    }
+    current_id = current_it->parent_id;
+  }
+  return false;
 }
 
 void FeedTreeModel::removeDescendants(const QString &node_id) {

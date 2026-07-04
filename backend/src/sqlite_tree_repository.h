@@ -41,9 +41,15 @@ class SqliteTreeRepository final : public TreeRepository {
 
  private:
   void ensureSchema();
+  void validateReparentLocked(const std::string &user_id,
+                              const std::string &node_id,
+                              const std::string &parent_id);
   void validateParentLocked(const std::string &user_id,
                             const std::string &parent_id,
                             onerss::pb::TreeNode::Type parent_type_expected);
+  [[nodiscard]] bool isDescendantLocked(const std::string &user_id,
+                                        const std::string &ancestor_id,
+                                        const std::string &node_id);
   [[nodiscard]] TreeNodeRecord fetchNodeLocked(const std::string &user_id, const std::string &node_id);
   [[nodiscard]] static std::string newUuid();
   static void bindText(sqlite3_stmt &statement, int index, const std::string &value);

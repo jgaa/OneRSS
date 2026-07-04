@@ -1,6 +1,42 @@
 #include "article_list_model.h"
 
+#include <QDateTime>
+
+#include <algorithm>
+
 namespace onerss::desktop {
+namespace {
+
+QDateTime parsePublishedAt(const QString &value) {
+  if (value.isEmpty()) {
+    return {};
+  }
+
+  auto parsed = QDateTime::fromString(value, Qt::ISODate);
+  if (!parsed.isValid()) {
+    parsed = QDateTime::fromString(value, Qt::RFC2822Date);
+  }
+  if (!parsed.isValid()) {
+    parsed = QDateTime::fromString(value, Qt::TextDate);
+  }
+  return parsed;
+}
+
+void sortNewestFirst(QVector<ArticleData> &articles) {
+  std::stable_sort(articles.begin(), articles.end(), [](const auto &lhs, const auto &rhs) {
+    const auto lhs_time = parsePublishedAt(lhs.published_at);
+    const auto rhs_time = parsePublishedAt(rhs.published_at);
+    if (lhs_time.isValid() && rhs_time.isValid() && lhs_time != rhs_time) {
+      return lhs_time > rhs_time;
+    }
+    if (lhs_time.isValid() != rhs_time.isValid()) {
+      return lhs_time.isValid();
+    }
+    return lhs.article_id < rhs.article_id;
+  });
+}
+
+}  // namespace
 
 ArticleListModel::ArticleListModel(QObject *parent) : QAbstractListModel(parent) {}
 
@@ -59,6 +95,7 @@ int ArticleListModel::selectedRow() const {
 void ArticleListModel::setArticles(const QVector<ArticleData> &articles) {
   beginResetModel();
   articles_ = articles;
+  sortNewestFirst(articles_);
   selected_row_ = articles_.isEmpty() ? -1 : 0;
   endResetModel();
   emit selectedRowChanged();

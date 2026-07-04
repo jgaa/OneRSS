@@ -140,9 +140,7 @@ TreeNodeRecord SqliteTreeRepository::createFeed(const std::string &user_id,
 
 TreeNodeRecord SqliteTreeRepository::updateNode(const std::string &user_id, const TreeNodeRecord &node) {
   std::scoped_lock lock{mutex_};
-  if (!node.parent_id.empty()) {
-    validateParentLocked(user_id, node.parent_id, onerss::pb::TreeNode::TYPE_FOLDER);
-  }
+  validateReparentLocked(user_id, node.node_id, node.parent_id);
 
   auto update = prepare(
     *db_,
@@ -414,12 +412,48 @@ void SqliteTreeRepository::ensureSchema() {
   execute(*db_, "CREATE INDEX IF NOT EXISTS articles_user_node_idx ON articles(user_id, node_id);");
 }
 
+void SqliteTreeRepository::validateReparentLocked(const std::string &user_id,
+                                                  const std::string &node_id,
+                                                  const std::string &parent_id) {
+  if (node_id.empty()) {
+    throw std::runtime_error{"node_id is required"};
+  }
+  if (node_id == parent_id) {
+    throw std::runtime_error{"node cannot be its own parent"};
+  }
+
+  static_cast<void>(fetchNodeLocked(user_id, node_id));
+  if (parent_id.empty()) {
+    return;
+  }
+
+  validateParentLocked(user_id, parent_id, onerss::pb::TreeNode::TYPE_FOLDER);
+  if (isDescendantLocked(user_id, node_id, parent_id)) {
+    throw std::runtime_error{"node cannot be moved into its own descendant"};
+  }
+}
+
 void SqliteTreeRepository::validateParentLocked(const std::string &user_id,
                                                 const std::string &parent_id,
                                                 const onerss::pb::TreeNode::Type parent_type_expected) {
   const auto parent = fetchNodeLocked(user_id, parent_id);
   if (parent.type != parent_type_expected) {
     throw std::runtime_error{"parent node type is not allowed"};
+  }
+}
+
+bool SqliteTreeRepository::isDescendantLocked(const std::string &user_id,
+                                              const std::string &ancestor_id,
+                                              const std::string &node_id) {
+  auto current = fetchNodeLocked(user_id, node_id);
+  while (true) {
+    if (current.node_id == ancestor_id) {
+      return true;
+    }
+    if (current.parent_id.empty()) {
+      return false;
+    }
+    current = fetchNodeLocked(user_id, current.parent_id);
   }
 }
 

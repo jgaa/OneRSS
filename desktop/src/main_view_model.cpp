@@ -86,6 +86,16 @@ ArticleListModel *MainViewModel::articleListModel() {
   return &article_list_model_;
 }
 
+int MainViewModel::connectionState() const {
+  if (connection_status_ == tr("Connected")) {
+    return 2;
+  }
+  if (connection_status_ == tr("Connecting to server...")) {
+    return 1;
+  }
+  return 0;
+}
+
 QString MainViewModel::connectionStatus() const {
   return connection_status_;
 }
@@ -312,6 +322,36 @@ void MainViewModel::refreshFeed(const QString &node_id) {
                                 Qt::QueuedConnection);
     } catch (const std::exception &error) {
       LOG_WARN << "Refresh feed failed: " << error.what();
+    }
+  });
+}
+
+void MainViewModel::moveNode(const QString &node_id, const QString &parent_id) {
+  const auto node = feed_tree_model_.nodeData(node_id);
+  if (node.isEmpty() || !feed_tree_model_.canReparent(node_id, parent_id)) {
+    return;
+  }
+
+  TreeNodeData update;
+  update.node_id = node.value(QStringLiteral("nodeId")).toString();
+  update.parent_id = parent_id;
+  update.type = static_cast<onerss::pb::TreeNode::Type>(node.value(QStringLiteral("type")).toInt());
+  update.title = node.value(QStringLiteral("title")).toString();
+  update.feed_url = node.value(QStringLiteral("feedUrl")).toString();
+  update.comment = node.value(QStringLiteral("comment")).toString();
+  update.use_default_refresh_interval = node.value(QStringLiteral("useDefaultRefreshInterval")).toBool();
+  update.refresh_interval_hours = node.value(QStringLiteral("refreshIntervalHours")).toInt();
+
+  if (!parent_id.isEmpty()) {
+    feed_tree_model_.expandNode(parent_id);
+  }
+
+  runAsync([this, update]() {
+    try {
+      const auto moved = app_client_.updateNode(update);
+      QMetaObject::invokeMethod(this, [this, moved]() { feed_tree_model_.upsertNode(moved); }, Qt::QueuedConnection);
+    } catch (const std::exception &error) {
+      LOG_WARN << "Move node failed: " << error.what();
     }
   });
 }

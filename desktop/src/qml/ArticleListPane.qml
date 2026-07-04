@@ -31,7 +31,10 @@ Frame {
 
             ToolButton {
                 visible: root.showBackButton
-                text: qsTr("Back")
+                text: "\u2190"
+                font.pixelSize: 22
+                font.bold: true
+                Accessible.name: qsTr("Back")
                 onClicked: root.backRequested()
             }
 

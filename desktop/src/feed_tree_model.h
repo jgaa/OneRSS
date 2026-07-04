@@ -36,7 +36,9 @@ class FeedTreeModel final : public QAbstractListModel {
   void removeNode(const QString &node_id);
 
   Q_INVOKABLE void toggleExpanded(const QString &node_id);
+  Q_INVOKABLE void expandNode(const QString &node_id);
   Q_INVOKABLE QVariantMap nodeData(const QString &node_id) const;
+  Q_INVOKABLE bool canReparent(const QString &node_id, const QString &parent_id) const;
 
  private:
   struct VisibleNode {
@@ -49,6 +51,7 @@ class FeedTreeModel final : public QAbstractListModel {
   void rebuildVisible();
   void appendVisible(const QString &parent_id, int depth);
   [[nodiscard]] QVector<QString> childrenOf(const QString &parent_id) const;
+  [[nodiscard]] bool isDescendantOf(const QString &node_id, const QString &ancestor_id) const;
   void removeDescendants(const QString &node_id);
 
   TreeNodeData root_node_;

@@ -8,6 +8,13 @@ Frame {
     required property var viewModel
     property bool narrowMode: false
     property string headerText: qsTr("Feeds")
+    property string draggedNodeId: ""
+    property string dropTargetNodeId: ""
+    property bool hasDropTarget: false
+    property string draggedNodeTitle: ""
+    property int draggedNodeType: 0
+    property real dragPreviewX: 0
+    property real dragPreviewY: 0
 
     signal nodeActivated(string nodeId, int nodeType, bool synthetic, bool hasChildren)
     signal nodeExpansionRequested(string nodeId)
@@ -19,10 +26,52 @@ Frame {
     signal configureRequested(string nodeId)
     signal renameRequested(string nodeId)
     signal deleteRequested(string nodeId)
+    signal moveNodeRequested(string nodeId, string newParentId)
 
     padding: 0
     Layout.fillWidth: true
     Layout.fillHeight: true
+
+    function beginNodeDrag(nodeId, title, nodeType, x, y) {
+        draggedNodeId = nodeId
+        dropTargetNodeId = ""
+        hasDropTarget = false
+        draggedNodeTitle = title
+        draggedNodeType = nodeType
+        dragPreviewX = x
+        dragPreviewY = y
+    }
+
+    function updateDropTarget(targetNodeId, syntheticTarget) {
+        if (!viewModel || draggedNodeId.length === 0) {
+            dropTargetNodeId = ""
+            hasDropTarget = false
+            return
+        }
+
+        const newParentId = syntheticTarget ? "" : targetNodeId
+        hasDropTarget = viewModel.feedTreeModel.canReparent(draggedNodeId, newParentId)
+        dropTargetNodeId = hasDropTarget ? newParentId : ""
+    }
+
+    function updateDragPreviewPosition(x, y) {
+        dragPreviewX = x
+        dragPreviewY = y
+    }
+
+    function finishNodeDrag() {
+        if (draggedNodeId.length > 0
+                && hasDropTarget
+                && viewModel
+                && viewModel.feedTreeModel.canReparent(draggedNodeId, dropTargetNodeId)) {
+            moveNodeRequested(draggedNodeId, dropTargetNodeId)
+        }
+        draggedNodeId = ""
+        dropTargetNodeId = ""
+        hasDropTarget = false
+        draggedNodeTitle = ""
+        draggedNodeType = 0
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -48,6 +97,7 @@ Frame {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            interactive: root.draggedNodeId.length === 0
             model: root.viewModel ? root.viewModel.feedTreeModel : null
             spacing: 1
 
@@ -60,11 +110,17 @@ Frame {
                 required property bool hasChildren
                 required property bool synthetic
 
+                readonly property bool validDropTarget: root.hasDropTarget
+                                                        && root.draggedNodeId.length > 0
+                                                        && root.dropTargetNodeId === (synthetic ? "" : nodeId)
+
                 width: ListView.view.width
                 height: root.narrowMode ? 40 : 28
-                color: root.viewModel && root.viewModel.selectedNodeId === nodeId
-                       ? "#d8c3a5"
-                       : ((treeMouse.containsMouse && !root.narrowMode) ? "#e9e2d7" : "transparent")
+                color: validDropTarget
+                       ? "#b8d7a8"
+                       : (root.viewModel && root.viewModel.selectedNodeId === nodeId
+                          ? "#d8c3a5"
+                          : ((treeMouse.containsMouse && !root.narrowMode) ? "#e9e2d7" : "transparent"))
 
                 RowLayout {
                     anchors.fill: parent
@@ -106,16 +162,59 @@ Frame {
                     enabled: !root.narrowMode
                 }
 
-                TapHandler {
+                MouseArea {
+                    anchors.fill: parent
                     enabled: !root.narrowMode
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
-                    onTapped: function(eventPoint, button) {
-                        if (button === Qt.LeftButton) {
-                            root.nodeActivated(nodeId, nodeType, synthetic, hasChildren)
-                        } else if (button === Qt.RightButton) {
+                    hoverEnabled: true
+                    preventStealing: true
+
+                    onPressed: function(mouse) {
+                        if (mouse.button === Qt.RightButton) {
                             root.nodeSelected(nodeId)
+                        }
+                    }
+
+                    onPressAndHold: function(mouse) {
+                        if (mouse.button !== Qt.LeftButton || synthetic) {
+                            return
+                        }
+                        root.nodeSelected(nodeId)
+                        const point = parent.mapToItem(root, mouse.x, mouse.y)
+                        root.beginNodeDrag(nodeId, title, nodeType, point.x, point.y)
+                    }
+
+                    onPositionChanged: function(mouse) {
+                        if (root.draggedNodeId.length === 0) {
+                            return
+                        }
+                        const previewPoint = parent.mapToItem(root, mouse.x, mouse.y)
+                        root.updateDragPreviewPosition(previewPoint.x, previewPoint.y)
+                        const point = parent.mapToItem(feedList.contentItem, mouse.x, mouse.y)
+                        const targetIndex = feedList.indexAt(point.x, point.y)
+                        const targetItem = targetIndex >= 0 ? feedList.itemAtIndex(targetIndex) : null
+                        root.updateDropTarget(targetItem ? targetItem.nodeId : "", targetItem ? targetItem.synthetic : false)
+                    }
+
+                    onReleased: function(mouse) {
+                        if (root.draggedNodeId.length > 0) {
+                            if (root.hasDropTarget && root.dropTargetNodeId.length > 0) {
+                                root.viewModel.feedTreeModel.expandNode(root.dropTargetNodeId)
+                            }
+                            root.finishNodeDrag()
+                            return
+                        }
+                        if (mouse.button === Qt.LeftButton) {
+                            root.nodeActivated(nodeId, nodeType, synthetic, hasChildren)
+                        } else if (mouse.button === Qt.RightButton) {
                             treeMenu.popup()
                         }
+                    }
+
+                    onCanceled: {
+                        root.draggedNodeId = ""
+                        root.dropTargetNodeId = ""
+                        root.hasDropTarget = false
                     }
                 }
 
@@ -176,6 +275,40 @@ Frame {
                         onTriggered: root.deleteRequested(nodeId)
                     }
                 }
+            }
+        }
+    }
+
+    Rectangle {
+        visible: root.draggedNodeId.length > 0
+        x: Math.max(8, Math.min(root.width - width - 8, root.dragPreviewX + 14))
+        y: Math.max(8, Math.min(root.height - height - 8, root.dragPreviewY + 14))
+        z: 1000
+        radius: 8
+        color: root.hasDropTarget ? "#dceccb" : "#f1e5d4"
+        border.color: root.hasDropTarget ? "#7ca05e" : "#b59c7f"
+        border.width: 1
+        opacity: 0.95
+        implicitWidth: previewRow.implicitWidth + 20
+        implicitHeight: previewRow.implicitHeight + 14
+
+        RowLayout {
+            id: previewRow
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 8
+
+            Label {
+                text: root.draggedNodeType === 0 ? "📁" : "📰"
+                font.pixelSize: 16
+            }
+
+            Label {
+                text: root.draggedNodeTitle
+                color: "#1f1a17"
+                font.pixelSize: 14
+                elide: Text.ElideRight
+                Layout.preferredWidth: Math.min(260, implicitWidth)
             }
         }
     }
