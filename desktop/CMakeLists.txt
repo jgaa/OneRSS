@@ -19,16 +19,27 @@ onerss_fetch(qcoro
   GIT_TAG        main
 )
 
-if (NOT ANDROID)
-  onerss_fetch(safekeeping
-    GIT_REPOSITORY https://github.com/jgaa/SafeKeeping.git
-    GIT_TAG        main
-  )
-endif()
+onerss_fetch(safekeeping
+  GIT_REPOSITORY https://github.com/jgaa/SafeKeeping.git
+  GIT_TAG        main
+)
 
 find_package(Qt6 6.10 REQUIRED COMPONENTS Concurrent Core Gui Network Qml Quick QuickControls2 Widgets Protobuf)
 
 qt_standard_project_setup(REQUIRES 6.10)
+
+if (ANDROID)
+  include(FetchContent)
+  FetchContent_Declare(
+    android_openssl
+    DOWNLOAD_EXTRACT_TIMESTAMP true
+    URL https://github.com/KDAB/android_openssl/archive/refs/heads/master.zip
+  )
+  FetchContent_MakeAvailable(android_openssl)
+  include(${android_openssl_SOURCE_DIR}/android_openssl.cmake)
+else() # Not android
+  set(TRAY_CONTROLLER_SRC src/tray_controller.cpp)
+endif()
 
 qt_add_executable(onerss-desktop
   src/article_list_model.cpp
@@ -43,10 +54,17 @@ qt_add_executable(onerss-desktop
   src/secret_store.cpp
   src/signup_client.cpp
   src/signup_view_model.cpp
-  src/tray_controller.cpp
+  ${TRAY_CONTROLLER_SRC}
   src/tree_types.cpp
   src/user_notification.cpp
 )
+
+if (ANDROID)
+  add_android_openssl_libraries(onerss-desktop)
+endif()
+
+set_target_properties(onerss-desktop PROPERTIES
+   QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
 
 qt_add_qml_module(onerss-desktop
   URI OneRSS
@@ -73,11 +91,21 @@ target_include_directories(onerss-desktop
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
+set_target_properties(onerss-desktop PROPERTIES
+  QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
+)
+
+if (ANDROID)
+  set_target_properties(onerss-desktop PROPERTIES
+    QT_ANDROID_APP_NAME "OpenRSS"
+  )
+endif()
+
 target_link_libraries(onerss-desktop
   PRIVATE
     onerss_qt_proto
     logfault
-    $<$<NOT:$<BOOL:${ANDROID}>>:safekeeping>
+    safekeeping
     $<$<NOT:$<BOOL:${ANDROID}>>:OpenSSL::SSL>
     $<$<NOT:$<BOOL:${ANDROID}>>:OpenSSL::Crypto>
     Qt6::Concurrent
@@ -88,7 +116,9 @@ target_link_libraries(onerss-desktop
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
-    Qt6::Widgets
+    $<$<NOT:$<BOOL:${ANDROID}>>:Qt6::Widgets>
     QCoro6::Core
     QCoro6::Network
 )
+
+qt_finalize_target(onerss-desktop)
