@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OneRSS
+Comment=Native RSS reader with a synchronized backend
+Exec=onerss-desktop
+Icon=org.jgaa.OneRSS
+Categories=Network;News;
+StartupNotify=true
+Terminal=false

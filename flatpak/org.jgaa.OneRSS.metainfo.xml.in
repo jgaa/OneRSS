@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.jgaa.OneRSS</id>
+  <name>OneRSS</name>
+  <summary>Native RSS reader with a synchronized backend</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <developer id="org.jgaa">
+    <name>JGAA</name>
+  </developer>
+  <launchable type="desktop-id">org.jgaa.OneRSS.desktop</launchable>
+  <description>
+    <p>OneRSS is a native RSS reader with a synchronized backend.</p>
+    <p>It presents a feed tree, article list, and preview pane in a familiar desktop layout.</p>
+  </description>
+  <categories>
+    <category>Network</category>
+    <category>News</category>
+  </categories>
+  <url type="homepage">https://github.com/jgaa/OneRSS</url>
+  <releases>
+    <release version="@VERSION@" date="2026-07-05"/>
+  </releases>
+</component>
