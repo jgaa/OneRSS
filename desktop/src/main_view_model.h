@@ -7,6 +7,8 @@
 #include "user_notification.h"
 
 #include <QObject>
+#include <QHash>
+#include <QTimer>
 
 namespace onerss::desktop {
 
@@ -97,12 +99,23 @@ class MainViewModel final : public QObject {
   void articlePagingChanged();
 
  private:
+  struct CachedArticlePage {
+    QVector<ArticleData> articles;
+    bool has_more = false;
+    int next_offset = 0;
+  };
+
   void setConnectionStatus(const QString &value);
   void setStatusBarMessage(const UiStatusMessage &message);
   void runAsync(std::function<void()> work);
   void reloadArticlesForCurrentNode();
   void loadArticlesPage(const QString &node_id, bool append);
   void refreshUnreadCount();
+  void scheduleReconnect(int delay_ms = 0);
+  void performHealthCheck();
+  [[nodiscard]] bool isNetworkReachable() const;
+  void handleNetworkReachabilityChanged();
+  [[nodiscard]] QVector<ArticleData> enrichArticles(const QVector<ArticleData> &articles) const;
   [[nodiscard]] bool markSelectedArticleRead();
   void setPreviewFromArticle(const QVariantMap &article);
 
@@ -119,10 +132,14 @@ class MainViewModel final : public QObject {
   QString preview_meta_;
   QString preview_content_;
   QString selected_article_link_;
+  QHash<QString, CachedArticlePage> article_cache_;
+  QTimer health_check_timer_;
+  QTimer reconnect_timer_;
   QString loaded_articles_node_id_ = QStringLiteral("__root__");
   int next_article_offset_ = 0;
   bool can_load_more_articles_ = false;
   bool loading_more_articles_ = false;
+  bool reconnect_in_progress_ = false;
 };
 
 }  // namespace onerss::desktop

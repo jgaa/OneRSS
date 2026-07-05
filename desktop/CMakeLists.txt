@@ -24,7 +24,7 @@ onerss_fetch(safekeeping
   GIT_TAG        main
 )
 
-find_package(Qt6 6.10 REQUIRED COMPONENTS Concurrent Core Gui Network Qml Quick QuickControls2 Widgets Protobuf)
+find_package(Qt6 6.10 REQUIRED COMPONENTS Concurrent Core Gui Network Qml Quick QuickControls2 Svg Widgets Protobuf)
 
 qt_standard_project_setup(REQUIRES 6.10)
 
@@ -86,6 +86,50 @@ qt_add_qml_module(onerss-desktop
     ../fonts/MaterialSymbolsSharp[FILL,GRAD,opsz,wght].ttf
 )
 
+set_source_files_properties(
+  ../icons/onerss.svg
+  PROPERTIES
+    QT_RESOURCE_ALIAS onerss.svg
+)
+
+set_source_files_properties(
+  ../flatpak/org.jgaa.OneRSS-256.png
+  PROPERTIES
+    QT_RESOURCE_ALIAS org.jgaa.OneRSS-256.png
+)
+
+set_source_files_properties(
+  ../icons/onerss.svg
+  PROPERTIES
+    QT_RESOURCE_ALIAS onerss.svg
+)
+
+set_source_files_properties(
+  ../flatpak/org.jgaa.OneRSS-256.png
+  PROPERTIES
+    QT_RESOURCE_ALIAS org.jgaa.OneRSS-256.png
+)
+
+set_source_files_properties(
+  ../icons/onerss.svg
+  PROPERTIES
+    QT_RESOURCE_ALIAS onerss.svg
+)
+
+set_source_files_properties(
+  ../flatpak/org.jgaa.OneRSS-256.png
+  PROPERTIES
+    QT_RESOURCE_ALIAS org.jgaa.OneRSS-256.png
+)
+
+qt_add_resources(onerss-desktop "onerss_icons"
+  PREFIX
+    "/icons"
+  FILES
+    ../icons/onerss.svg
+    ../flatpak/org.jgaa.OneRSS-256.png
+)
+
 target_compile_definitions(onerss-desktop
   PRIVATE
     ONERSS_VERSION="${PROJECT_VERSION}"
@@ -102,7 +146,7 @@ set_target_properties(onerss-desktop PROPERTIES
 
 if (ANDROID)
   set_target_properties(onerss-desktop PROPERTIES
-    QT_ANDROID_APP_NAME "OpenRSS"
+    QT_ANDROID_APP_NAME "OneRSS"
   )
 endif()
 
@@ -121,6 +165,7 @@ target_link_libraries(onerss-desktop
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::Svg
     $<$<NOT:$<BOOL:${ANDROID}>>:Qt6::Widgets>
     QCoro6::Core
     QCoro6::Network

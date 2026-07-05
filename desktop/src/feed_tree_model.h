@@ -39,6 +39,7 @@ class FeedTreeModel final : public QAbstractListModel {
   Q_INVOKABLE void expandNode(const QString &node_id);
   Q_INVOKABLE QVariantMap nodeData(const QString &node_id) const;
   Q_INVOKABLE bool canReparent(const QString &node_id, const QString &parent_id) const;
+  [[nodiscard]] QString titleForNode(const QString &node_id) const;
 
  private:
   struct VisibleNode {

@@ -17,6 +17,11 @@ namespace onerss::desktop {
 namespace {
 
 QIcon baseIcon() {
+  const QIcon bundled_icon{QStringLiteral(":/icons/onerss.svg")};
+  if (!bundled_icon.isNull()) {
+    return bundled_icon;
+  }
+
   auto icon = QIcon::fromTheme(QStringLiteral("application-rss+xml"));
   if (!icon.isNull()) {
     return icon;

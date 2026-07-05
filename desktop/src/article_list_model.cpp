@@ -55,6 +55,8 @@ QVariant ArticleListModel::data(const QModelIndex &index, const int role) const 
       return article.article_id;
     case NodeIdRole:
       return article.node_id;
+    case FeedTitleRole:
+      return article.feed_title;
     case TitleRole:
       return article.title;
     case LinkUrlRole:
@@ -78,6 +80,7 @@ QHash<int, QByteArray> ArticleListModel::roleNames() const {
   return {
     {ArticleIdRole, "articleId"},
     {NodeIdRole, "nodeId"},
+    {FeedTitleRole, "feedTitle"},
     {TitleRole, "title"},
     {LinkUrlRole, "linkUrl"},
     {PublishedAtRole, "publishedAt"},

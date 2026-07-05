@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <atomic>
 #include <unordered_map>
 #include <QVector>
 
@@ -39,6 +40,7 @@ class AppClient final {
   [[nodiscard]] UserSettingsData updateUserSettings(const UserSettingsData &settings);
   [[nodiscard]] int fetchUnreadCount();
   [[nodiscard]] ArticlePage fetchArticles(const QString &node_id, int offset, int limit);
+  void ping();
   [[nodiscard]] int markArticleRead(const QString &node_id, const QString &article_id);
   [[nodiscard]] int markArticleUnread(const QString &node_id, const QString &article_id);
   [[nodiscard]] int markAllArticlesRead(const QString &node_id);
@@ -56,12 +58,14 @@ class AppClient final {
   std::function<void(const QString &node_id, const QString &origin_device_id)> onArticlesUpdated;
   std::function<void(const UserSettingsData &, const QString &origin_device_id)> onUserSettingsUpdated;
   std::function<void(const UiStatusMessage &message)> onUserNotification;
+  std::function<void(const QString &reason)> onConnectionLost;
 
   [[nodiscard]] QString deviceId() const;
 
  private:
   [[nodiscard]] onerss::pb::OutgoingEnvelope request(const onerss::pb::IncomingEnvelope &request);
   void emitUserNotification(const onerss::pb::OutgoingEnvelope &envelope);
+  void failPendingRequests(const QString &reason);
   void ioLoop(std::promise<void> ready_promise);
   void handleEnvelope(onerss::pb::OutgoingEnvelope envelope);
   static std::string newRequestId();
@@ -71,7 +75,7 @@ class AppClient final {
   std::mutex pending_mutex_;
   std::unordered_map<std::string, std::promise<onerss::pb::OutgoingEnvelope>> pending_;
   OutgoingMessageQueue<onerss::pb::IncomingEnvelope> outgoing_;
-  bool running_ = false;
+  std::atomic_bool running_ = false;
 };
 
 }  // namespace onerss::desktop

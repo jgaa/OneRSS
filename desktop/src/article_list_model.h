@@ -15,6 +15,7 @@ class ArticleListModel final : public QAbstractListModel {
   enum Roles {
     ArticleIdRole = Qt::UserRole + 1,
     NodeIdRole,
+    FeedTitleRole,
     TitleRole,
     LinkUrlRole,
     PublishedAtRole,

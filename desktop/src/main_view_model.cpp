@@ -3,6 +3,7 @@
 
 #include "logging.h"
 
+#include <QNetworkInformation>
 #include <QMetaObject>
 #include <QDesktopServices>
 #include <QUrl>
@@ -14,6 +15,20 @@
 namespace onerss::desktop {
 
 MainViewModel::MainViewModel(QObject *parent) : QObject(parent) {
+  health_check_timer_.setInterval(60 * 1000);
+  connect(&health_check_timer_, &QTimer::timeout, this, [this]() { performHealthCheck(); });
+
+  reconnect_timer_.setSingleShot(true);
+  connect(&reconnect_timer_, &QTimer::timeout, this, [this]() { reconnect(); });
+
+  static_cast<void>(QNetworkInformation::loadBackendByFeatures(QNetworkInformation::Feature::Reachability));
+  if (auto *network_information = QNetworkInformation::instance()) {
+    connect(network_information,
+            &QNetworkInformation::reachabilityChanged,
+            this,
+            [this](QNetworkInformation::Reachability) { handleNetworkReachabilityChanged(); });
+  }
+
   connect(&article_list_model_,
           &ArticleListModel::selectedRowChanged,
           this,
@@ -70,6 +85,21 @@ MainViewModel::MainViewModel(QObject *parent) : QObject(parent) {
   };
   app_client_.onUserNotification = [this](const UiStatusMessage &message) {
     QMetaObject::invokeMethod(this, [this, message]() { setStatusBarMessage(message); }, Qt::QueuedConnection);
+  };
+  app_client_.onConnectionLost = [this](const QString &reason) {
+    QMetaObject::invokeMethod(this,
+                              [this, reason]() {
+                                setConnectionStatus(tr("Disconnected"));
+                                setStatusBarMessage(UiStatusMessage{
+                                  .severity = UiStatusMessage::Severity::Warning,
+                                  .text = tr("Connection to the server was lost."),
+                                  .detail = reason
+                                });
+                                if (isNetworkReachable()) {
+                                  scheduleReconnect(1000);
+                                }
+                              },
+                              Qt::QueuedConnection);
   };
   reconnect();
 }
@@ -157,12 +187,19 @@ bool MainViewModel::loadingMoreArticles() const {
 }
 
 void MainViewModel::reconnect() {
+  if (reconnect_in_progress_) {
+    return;
+  }
+  reconnect_timer_.stop();
+  reconnect_in_progress_ = true;
   runAsync([this]() {
     try {
       const auto peer = secret_store_.loadPeer();
       if (!peer.isValid()) {
         QMetaObject::invokeMethod(this,
                                   [this]() {
+                                    reconnect_in_progress_ = false;
+                                    health_check_timer_.stop();
                                     setConnectionStatus(tr("No paired device configured"));
                                     setStatusBarMessage(UiStatusMessage{
                                       .severity = UiStatusMessage::Severity::Warning,
@@ -174,15 +211,35 @@ void MainViewModel::reconnect() {
         return;
       }
 
+      if (!isNetworkReachable()) {
+        QMetaObject::invokeMethod(this,
+                                  [this]() {
+                                    reconnect_in_progress_ = false;
+                                    health_check_timer_.stop();
+                                    setConnectionStatus(tr("Waiting for network"));
+                                    setStatusBarMessage(UiStatusMessage{
+                                      .severity = UiStatusMessage::Severity::Warning,
+                                      .text = tr("Network unavailable."),
+                                      .detail = tr("OneRSS will reconnect when connectivity returns.")
+                                    });
+                                    scheduleReconnect(60 * 1000);
+                                  },
+                                  Qt::QueuedConnection);
+        return;
+      }
+
       QMetaObject::invokeMethod(this,
                                 [this]() { setConnectionStatus(tr("Connecting to server...")); },
                                 Qt::QueuedConnection);
+      app_client_.stop();
       app_client_.connectAndStart(peer);
+      app_client_.ping();
       const auto settings = app_client_.fetchUserSettings();
       const auto unread_count = app_client_.fetchUnreadCount();
       const auto nodes = app_client_.fetchTree();
       QMetaObject::invokeMethod(this,
                                 [this, settings, unread_count, nodes]() {
+                                  reconnect_in_progress_ = false;
                                   if (default_refresh_interval_hours_ != settings.default_refresh_interval_hours) {
                                     default_refresh_interval_hours_ = settings.default_refresh_interval_hours;
                                     emit userSettingsChanged();
@@ -193,6 +250,7 @@ void MainViewModel::reconnect() {
                                   }
                                   feed_tree_model_.loadNodes(nodes);
                                   setConnectionStatus(tr("Connected"));
+                                  health_check_timer_.start();
                                   reloadArticlesForCurrentNode();
                                 },
                                 Qt::QueuedConnection);
@@ -200,12 +258,17 @@ void MainViewModel::reconnect() {
       LOG_WARN << "Failed to connect app client: " << error.what();
       QMetaObject::invokeMethod(this,
                                 [this, message = QString::fromUtf8(error.what())]() {
+                                  reconnect_in_progress_ = false;
+                                  health_check_timer_.stop();
                                   setConnectionStatus(tr("Connection failed: %1").arg(message));
                                   setStatusBarMessage(UiStatusMessage{
                                     .severity = UiStatusMessage::Severity::Error,
                                     .text = tr("Could not connect to the server."),
                                     .detail = message
                                   });
+                                  if (isNetworkReachable()) {
+                                    scheduleReconnect(5000);
+                                  }
                                 },
                                 Qt::QueuedConnection);
     }
@@ -526,7 +589,8 @@ void MainViewModel::loadArticlesPage(const QString &node_id, const bool append) 
 
   runAsync([this, request_node_id, append, offset, limit]() {
     try {
-      const auto page = app_client_.fetchArticles(request_node_id, offset, limit);
+      auto page = app_client_.fetchArticles(request_node_id, offset, limit);
+      page.articles = enrichArticles(page.articles);
       QMetaObject::invokeMethod(this,
                                 [this, request_node_id, append, page]() {
                                   if (selected_node_id_ != request_node_id) {
@@ -539,8 +603,21 @@ void MainViewModel::loadArticlesPage(const QString &node_id, const bool append) 
 
                                   if (!append) {
                                     article_list_model_.setArticles(page.articles);
+                                    article_cache_.insert(request_node_id,
+                                                          CachedArticlePage{
+                                                            .articles = page.articles,
+                                                            .has_more = page.has_more,
+                                                            .next_offset = page.next_offset,
+                                                          });
                                   } else {
                                     article_list_model_.appendArticles(page.articles);
+                                    auto cached_page = article_cache_.value(request_node_id);
+                                    for (const auto &article : page.articles) {
+                                      cached_page.articles.push_back(article);
+                                    }
+                                    cached_page.has_more = page.has_more;
+                                    cached_page.next_offset = page.next_offset;
+                                    article_cache_.insert(request_node_id, std::move(cached_page));
                                   }
                                   LOG_TRACE << "Loaded article page node_id=" << request_node_id.toStdString()
                                             << " append=" << append
@@ -557,13 +634,48 @@ void MainViewModel::loadArticlesPage(const QString &node_id, const bool append) 
     } catch (const std::exception &error) {
       LOG_WARN << "Fetch articles failed: " << error.what();
       QMetaObject::invokeMethod(this,
-                                [this, request_node_id]() {
+                                [this, request_node_id, append, message = QString::fromUtf8(error.what())]() {
                                   if (selected_node_id_ != request_node_id) {
                                     return;
                                   }
+                                  if (!append) {
+                                    if (article_cache_.contains(request_node_id)) {
+                                      const auto cached_page = article_cache_.value(request_node_id);
+                                      article_list_model_.setArticles(cached_page.articles);
+                                      next_article_offset_ = cached_page.next_offset;
+                                      can_load_more_articles_
+                                        = request_node_id != QStringLiteral("__root__") && cached_page.has_more;
+                                      setStatusBarMessage(UiStatusMessage{
+                                        .severity = UiStatusMessage::Severity::Warning,
+                                        .text = tr("Showing cached articles for the selected feed."),
+                                        .detail = message
+                                      });
+                                    } else {
+                                      article_list_model_.setArticles({});
+                                      next_article_offset_ = 0;
+                                      can_load_more_articles_ = false;
+                                      setStatusBarMessage(UiStatusMessage{
+                                        .severity = UiStatusMessage::Severity::Error,
+                                        .text = tr("Could not load articles for the selected feed."),
+                                        .detail = message
+                                      });
+                                    }
+                                  }
                                   loading_more_articles_ = false;
-                                  can_load_more_articles_ = false;
+                                  if (append) {
+                                    can_load_more_articles_ = false;
+                                    setStatusBarMessage(UiStatusMessage{
+                                      .severity = UiStatusMessage::Severity::Warning,
+                                      .text = tr("Could not load more articles."),
+                                      .detail = message
+                                    });
+                                  }
                                   emit articlePagingChanged();
+                                  if (message.contains(QStringLiteral("timed out"), Qt::CaseInsensitive)
+                                      || message.contains(QStringLiteral("not connected"), Qt::CaseInsensitive)) {
+                                    setConnectionStatus(tr("Disconnected"));
+                                    scheduleReconnect(1000);
+                                  }
                                 },
                                 Qt::QueuedConnection);
     }
@@ -586,6 +698,101 @@ void MainViewModel::refreshUnreadCount() {
       LOG_WARN << "Fetch unread count failed: " << error.what();
     }
   });
+}
+
+void MainViewModel::scheduleReconnect(const int delay_ms) {
+  if (reconnect_in_progress_ || !isNetworkReachable()) {
+    return;
+  }
+  if (delay_ms <= 0) {
+    reconnect();
+    return;
+  }
+  reconnect_timer_.start(delay_ms);
+}
+
+void MainViewModel::performHealthCheck() {
+  if (connection_status_ != tr("Connected")) {
+    return;
+  }
+  if (!isNetworkReachable()) {
+    health_check_timer_.stop();
+    setConnectionStatus(tr("Waiting for network"));
+    setStatusBarMessage(UiStatusMessage{
+      .severity = UiStatusMessage::Severity::Warning,
+      .text = tr("Network unavailable."),
+      .detail = tr("OneRSS will reconnect when connectivity returns.")
+    });
+    app_client_.stop();
+    scheduleReconnect(60 * 1000);
+    return;
+  }
+
+  runAsync([this]() {
+    try {
+      app_client_.ping();
+    } catch (const std::exception &error) {
+      LOG_WARN << "Health check ping failed: " << error.what();
+      QMetaObject::invokeMethod(this,
+                                [this, message = QString::fromUtf8(error.what())]() {
+                                  setConnectionStatus(tr("Disconnected"));
+                                  setStatusBarMessage(UiStatusMessage{
+                                    .severity = UiStatusMessage::Severity::Warning,
+                                    .text = tr("Server health check failed."),
+                                    .detail = message
+                                  });
+                                  app_client_.stop();
+                                  scheduleReconnect(1000);
+                                },
+                                Qt::QueuedConnection);
+    }
+  });
+}
+
+bool MainViewModel::isNetworkReachable() const {
+  const auto *network_information = QNetworkInformation::instance();
+  if (network_information == nullptr) {
+    return true;
+  }
+
+  switch (network_information->reachability()) {
+    case QNetworkInformation::Reachability::Disconnected:
+      return false;
+    case QNetworkInformation::Reachability::Unknown:
+      return true;
+    case QNetworkInformation::Reachability::Local:
+    case QNetworkInformation::Reachability::Site:
+    case QNetworkInformation::Reachability::Online:
+      return true;
+  }
+
+  return true;
+}
+
+void MainViewModel::handleNetworkReachabilityChanged() {
+  if (isNetworkReachable()) {
+    if (connection_status_ != tr("Connected")) {
+      scheduleReconnect(1000);
+    }
+    return;
+  }
+
+  health_check_timer_.stop();
+  setConnectionStatus(tr("Waiting for network"));
+  setStatusBarMessage(UiStatusMessage{
+    .severity = UiStatusMessage::Severity::Warning,
+    .text = tr("Network unavailable."),
+    .detail = tr("OneRSS will reconnect when connectivity returns.")
+  });
+  app_client_.stop();
+}
+
+QVector<ArticleData> MainViewModel::enrichArticles(const QVector<ArticleData> &articles) const {
+  QVector<ArticleData> enriched = articles;
+  for (auto &article : enriched) {
+    article.feed_title = feed_tree_model_.titleForNode(article.node_id);
+  }
+  return enriched;
 }
 
 bool MainViewModel::markSelectedArticleRead() {

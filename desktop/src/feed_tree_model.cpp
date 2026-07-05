@@ -143,6 +143,14 @@ bool FeedTreeModel::canReparent(const QString &node_id, const QString &parent_id
   return true;
 }
 
+QString FeedTreeModel::titleForNode(const QString &node_id) const {
+  if (node_id == root_node_.node_id) {
+    return root_node_.title;
+  }
+  const auto it = nodes_.find(node_id);
+  return it != nodes_.end() ? it->title : QString{};
+}
+
 void FeedTreeModel::rebuildVisible() {
   beginResetModel();
   visible_nodes_.clear();

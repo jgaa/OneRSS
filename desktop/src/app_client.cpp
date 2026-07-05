@@ -8,6 +8,7 @@
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QSslKey>
+#include <chrono>
 #include <QUuid>
 
 namespace onerss::desktop {
@@ -71,11 +72,12 @@ void AppClient::connectAndStart(const StoredPeer &peer) {
 }
 
 void AppClient::stop() {
-  if (!running_) {
+  if (!running_ && !io_thread_.joinable()) {
     return;
   }
   running_ = false;
   outgoing_.close();
+  failPendingRequests(QStringLiteral("client stopped"));
   if (io_thread_.joinable()) {
     io_thread_.join();
   }
@@ -162,6 +164,18 @@ ArticlePage AppClient::fetchArticles(const QString &node_id, const int offset, c
   page.has_more = response.articlesResponse().hasMore();
   page.next_offset = static_cast<int>(response.articlesResponse().nextOffset());
   return page;
+}
+
+void AppClient::ping() {
+  onerss::pb::IncomingEnvelope request_envelope;
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  request_envelope.setAppHelloRequest(onerss::pb::AppHelloRequest{});
+  const auto response = request(request_envelope);
+  emitUserNotification(response);
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
+  }
 }
 
 int AppClient::markArticleRead(const QString &node_id, const QString &article_id) {
@@ -294,6 +308,10 @@ QString AppClient::deviceId() const {
 }
 
 onerss::pb::OutgoingEnvelope AppClient::request(const onerss::pb::IncomingEnvelope &request_envelope) {
+  if (!running_) {
+    throw std::runtime_error{"not connected"};
+  }
+
   std::promise<onerss::pb::OutgoingEnvelope> promise;
   auto future = promise.get_future();
   {
@@ -301,6 +319,14 @@ onerss::pb::OutgoingEnvelope AppClient::request(const onerss::pb::IncomingEnvelo
     pending_.emplace(request_envelope.requestId().toStdString(), std::move(promise));
   }
   outgoing_.push(request_envelope);
+  constexpr auto timeout = std::chrono::seconds{30};
+  if (future.wait_for(timeout) != std::future_status::ready) {
+    {
+      std::scoped_lock lock{pending_mutex_};
+      pending_.erase(request_envelope.requestId().toStdString());
+    }
+    throw std::runtime_error{"request timed out"};
+  }
   return future.get();
 }
 
@@ -346,6 +372,21 @@ void AppClient::handleEnvelope(onerss::pb::OutgoingEnvelope envelope) {
   if (it != pending_.end()) {
     it->second.set_value(std::move(envelope));
     pending_.erase(it);
+  }
+}
+
+void AppClient::failPendingRequests(const QString &reason) {
+  std::unordered_map<std::string, std::promise<onerss::pb::OutgoingEnvelope>> pending;
+  {
+    std::scoped_lock lock{pending_mutex_};
+    pending.swap(pending_);
+  }
+
+  for (auto &[request_id, promise] : pending) {
+    try {
+      promise.set_exception(std::make_exception_ptr(std::runtime_error{reason.toStdString()}));
+    } catch (...) {
+    }
   }
 }
 
@@ -403,13 +444,22 @@ void AppClient::ioLoop(std::promise<void> ready_promise) {
           handleEnvelope(readEnvelope<QSslSocket, onerss::pb::OutgoingEnvelope>(socket));
         } while (socket.bytesAvailable() > 0);
       }
+
+      if (socket.state() != QAbstractSocket::ConnectedState) {
+        throw std::runtime_error(socket.errorString().toStdString());
+      }
     }
   } catch (const std::exception &error) {
+    running_ = false;
+    failPendingRequests(QString::fromUtf8(error.what()));
     try {
       ready_promise.set_exception(std::make_exception_ptr(std::runtime_error{error.what()}));
     } catch (...) {
     }
     LOG_WARN << "App client IO stopped: " << error.what();
+    if (onConnectionLost) {
+      onConnectionLost(QString::fromUtf8(error.what()));
+    }
   }
 }
 

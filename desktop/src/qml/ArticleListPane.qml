@@ -136,18 +136,23 @@ Frame {
                     required property bool isRead
                     required property bool selected
                     required property string title
+                    required property string feedTitle
                     required property string publishedAt
                     required property string author
 
                     function formattedMeta() {
+                        const parts = []
+                        if (feedTitle.length > 0) {
+                            parts.push(feedTitle)
+                        }
                         const formattedTime = root.formatTimestamp ? root.formatTimestamp(publishedAt) : publishedAt
-                        if (formattedTime.length > 0 && author.length > 0) {
-                            return qsTr("%1 | %2").arg(formattedTime).arg(author)
-                        }
                         if (formattedTime.length > 0) {
-                            return formattedTime
+                            parts.push(formattedTime)
                         }
-                        return author
+                        if (author.length > 0) {
+                            parts.push(author)
+                        }
+                        return parts.join(" | ")
                     }
 
                     width: ListView.view.width

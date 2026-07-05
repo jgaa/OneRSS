@@ -10,6 +10,7 @@ namespace onerss::desktop {
 struct ArticleData {
   QString article_id;
   QString node_id;
+  QString feed_title;
   QString title;
   QString link_url;
   QString published_at;
@@ -21,6 +22,7 @@ struct ArticleData {
     QVariantMap map;
     map.insert(QStringLiteral("articleId"), article_id);
     map.insert(QStringLiteral("nodeId"), node_id);
+    map.insert(QStringLiteral("feedTitle"), feed_title);
     map.insert(QStringLiteral("title"), title);
     map.insert(QStringLiteral("linkUrl"), link_url);
     map.insert(QStringLiteral("publishedAt"), published_at);

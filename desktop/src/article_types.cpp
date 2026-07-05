@@ -6,6 +6,7 @@ ArticleData fromProto(const onerss::pb::Article &article) {
   return ArticleData{
     .article_id = article.articleId(),
     .node_id = article.nodeId(),
+    .feed_title = {},
     .title = article.title(),
     .link_url = article.linkUrl(),
     .published_at = article.publishedAt(),

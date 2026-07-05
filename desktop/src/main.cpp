@@ -11,6 +11,8 @@
 #endif
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QIcon>
+#include <QQuickWindow>
 #include <QWindow>
 
 int main(int argc, char *argv[]) {
@@ -28,10 +30,14 @@ int main(int argc, char *argv[]) {
 #endif
 
   app.setQuitOnLastWindowClosed(false);
+  const QIcon app_icon{QStringLiteral(":/icons/onerss.svg")};
+  if (!app_icon.isNull()) {
+    app.setWindowIcon(app_icon);
+  }
 
   onerss::desktop::LoggingController logging;
   logging.initialize();
-  LOG_INFO << "Starting OneRSS desktop app";
+  LOG_INFO << "Starting OneRSS " << ONERSS_VERSION << " desktop app";
   LOG_DEBUG << "QSettings file path: " << logging.settingsFilePath().toStdString();
   LOG_DEBUG << "SSL support " << (QSslSocket::supportsSsl() ? "enabled" : "disabled");
 
@@ -69,6 +75,9 @@ int main(int argc, char *argv[]) {
 
 #ifndef __ANDROID__
   if (auto *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst())) {
+    if (!app_icon.isNull()) {
+      window->setIcon(app_icon);
+    }
     tray_controller.initialize(window);
     tray_controller.setUnreadCount(main_view_model.unreadCount());
   }
