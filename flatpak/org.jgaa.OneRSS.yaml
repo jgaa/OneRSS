@@ -16,6 +16,14 @@ finish-args:
   - --talk-name=org.kde.kwalletd6
 
 modules:
+  - name: libsodium
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+    sources:
+      - type: archive
+        url: https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz
+        sha256: adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349
   - name: onerss
     buildsystem: simple
     build-commands:
@@ -33,6 +41,8 @@ modules:
         fi
         cmake -S . -B _build -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=/app \
+          -DCMAKE_PREFIX_PATH=/app \
           -DONERSS_BUILD_BACKEND=OFF \
           -DONERSS_BUILD_DESKTOP=ON \
           -DONERSS_LOGFAULT_SOURCE_DIR="$(pwd)/third_party/logfault" \
