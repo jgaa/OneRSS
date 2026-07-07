@@ -268,6 +268,8 @@ std::size_t SqliteTreeRepository::upsertArticles(const std::string &user_id,
 
 std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string &user_id,
                                                               const std::string &node_id,
+                                                              const std::string &title_query,
+                                                              const bool unread_only,
                                                               const std::size_t offset,
                                                               const std::size_t limit) {
   std::scoped_lock lock{mutex_};
@@ -279,10 +281,15 @@ std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string 
   if (all_feeds) {
     select = prepare(*db_,
                      "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, "
-                     "is_read FROM articles WHERE user_id = ?1 ORDER BY published_at DESC, id DESC LIMIT ?2 OFFSET ?3");
+                     "is_read FROM articles WHERE user_id = ?1 "
+                     "AND (?2 = '' OR instr(lower(title), lower(?2)) > 0) "
+                     "AND (?3 = 0 OR is_read = 0) "
+                     "ORDER BY published_at DESC, id DESC LIMIT ?4 OFFSET ?5");
     bindText(*select, 1, user_id);
-    sqlite3_bind_int64(select.get(), 2, static_cast<sqlite3_int64>(limit));
-    sqlite3_bind_int64(select.get(), 3, static_cast<sqlite3_int64>(offset));
+    bindText(*select, 2, title_query);
+    sqlite3_bind_int(select.get(), 3, unread_only ? 1 : 0);
+    sqlite3_bind_int64(select.get(), 4, static_cast<sqlite3_int64>(limit));
+    sqlite3_bind_int64(select.get(), 5, static_cast<sqlite3_int64>(offset));
   } else {
     const auto node = fetchNodeLocked(user_id, node_id);
     if (node.type == onerss::pb::TreeNode::TYPE_FOLDER) {
@@ -298,21 +305,30 @@ std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string 
         "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, is_read "
         "FROM articles WHERE user_id = ?1 AND node_id IN ("
         "  SELECT id FROM subtree WHERE node_type = ?3"
-        ") ORDER BY published_at DESC, id DESC LIMIT ?4 OFFSET ?5");
+        ") AND (?4 = '' OR instr(lower(title), lower(?4)) > 0) "
+        "AND (?5 = 0 OR is_read = 0) "
+        "ORDER BY published_at DESC, id DESC LIMIT ?6 OFFSET ?7");
       bindText(*select, 1, user_id);
       bindText(*select, 2, node_id);
       sqlite3_bind_int(select.get(), 3, onerss::pb::TreeNode::TYPE_FEED);
-      sqlite3_bind_int64(select.get(), 4, static_cast<sqlite3_int64>(limit));
-      sqlite3_bind_int64(select.get(), 5, static_cast<sqlite3_int64>(offset));
+      bindText(*select, 4, title_query);
+      sqlite3_bind_int(select.get(), 5, unread_only ? 1 : 0);
+      sqlite3_bind_int64(select.get(), 6, static_cast<sqlite3_int64>(limit));
+      sqlite3_bind_int64(select.get(), 7, static_cast<sqlite3_int64>(offset));
     } else {
       select = prepare(
         *db_,
         "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, is_read "
-        "FROM articles WHERE user_id = ?1 AND node_id = ?2 ORDER BY published_at DESC, id DESC LIMIT ?3 OFFSET ?4");
+        "FROM articles WHERE user_id = ?1 AND node_id = ?2 "
+        "AND (?3 = '' OR instr(lower(title), lower(?3)) > 0) "
+        "AND (?4 = 0 OR is_read = 0) "
+        "ORDER BY published_at DESC, id DESC LIMIT ?5 OFFSET ?6");
       bindText(*select, 1, user_id);
       bindText(*select, 2, node_id);
-      sqlite3_bind_int64(select.get(), 3, static_cast<sqlite3_int64>(limit));
-      sqlite3_bind_int64(select.get(), 4, static_cast<sqlite3_int64>(offset));
+      bindText(*select, 3, title_query);
+      sqlite3_bind_int(select.get(), 4, unread_only ? 1 : 0);
+      sqlite3_bind_int64(select.get(), 5, static_cast<sqlite3_int64>(limit));
+      sqlite3_bind_int64(select.get(), 6, static_cast<sqlite3_int64>(offset));
     }
   }
 
@@ -384,12 +400,39 @@ std::size_t SqliteTreeRepository::markArticleUnread(const std::string &user_id,
 
 std::size_t SqliteTreeRepository::markAllArticlesRead(const std::string &user_id, const std::string &node_id) {
   std::scoped_lock lock{mutex_};
-  validateParentLocked(user_id, node_id, onerss::pb::TreeNode::TYPE_FEED);
-  auto update = prepare(*db_,
-                        "UPDATE articles SET is_read = 1 "
-                        "WHERE user_id = ?1 AND node_id = ?2 AND is_read = 0");
-  bindText(*update, 1, user_id);
-  bindText(*update, 2, node_id);
+  statement_ptr update;
+  if (node_id.empty()) {
+    update = prepare(*db_,
+                     "UPDATE articles SET is_read = 1 "
+                     "WHERE user_id = ?1 AND is_read = 0");
+    bindText(*update, 1, user_id);
+  } else {
+    const auto node = fetchNodeLocked(user_id, node_id);
+    if (node.type == onerss::pb::TreeNode::TYPE_FOLDER) {
+      update = prepare(
+        *db_,
+        "WITH RECURSIVE subtree(id, node_type) AS ("
+        "  SELECT id, node_type FROM tree_nodes WHERE user_id = ?1 AND id = ?2"
+        "  UNION ALL "
+        "  SELECT child.id, child.node_type FROM tree_nodes child "
+        "  JOIN subtree parent ON child.parent_id = parent.id "
+        "  WHERE child.user_id = ?1"
+        ") "
+        "UPDATE articles SET is_read = 1 "
+        "WHERE user_id = ?1 AND is_read = 0 AND node_id IN ("
+        "  SELECT id FROM subtree WHERE node_type = ?3"
+        ")");
+      bindText(*update, 1, user_id);
+      bindText(*update, 2, node_id);
+      sqlite3_bind_int(update.get(), 3, onerss::pb::TreeNode::TYPE_FEED);
+    } else {
+      update = prepare(*db_,
+                       "UPDATE articles SET is_read = 1 "
+                       "WHERE user_id = ?1 AND node_id = ?2 AND is_read = 0");
+      bindText(*update, 1, user_id);
+      bindText(*update, 2, node_id);
+    }
+  }
   checkStepDone(*db_, sqlite3_step(update.get()));
   return static_cast<std::size_t>(sqlite3_changes(db_.get()));
 }

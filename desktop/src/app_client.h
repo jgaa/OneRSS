@@ -39,7 +39,11 @@ class AppClient final {
   [[nodiscard]] UserSettingsData fetchUserSettings();
   [[nodiscard]] UserSettingsData updateUserSettings(const UserSettingsData &settings);
   [[nodiscard]] int fetchUnreadCount();
-  [[nodiscard]] ArticlePage fetchArticles(const QString &node_id, int offset, int limit);
+  [[nodiscard]] ArticlePage fetchArticles(const QString &node_id,
+                                          const QString &title_query,
+                                          bool unread_only,
+                                          int offset,
+                                          int limit);
   void ping();
   [[nodiscard]] int markArticleRead(const QString &node_id, const QString &article_id);
   [[nodiscard]] int markArticleUnread(const QString &node_id, const QString &article_id);

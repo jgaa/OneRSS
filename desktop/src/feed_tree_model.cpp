@@ -18,6 +18,20 @@ FeedTreeModel::FeedTreeModel(QObject *parent) : QAbstractListModel(parent) {
   rebuildVisible();
 }
 
+QString FeedTreeModel::filterText() const {
+  return filter_text_;
+}
+
+void FeedTreeModel::setFilterText(const QString &value) {
+  const auto normalized = value.trimmed();
+  if (filter_text_ == normalized) {
+    return;
+  }
+  filter_text_ = normalized;
+  rebuildVisible();
+  emit filterTextChanged();
+}
+
 int FeedTreeModel::rowCount(const QModelIndex &parent) const {
   return parent.isValid() ? 0 : visible_nodes_.size();
 }
@@ -160,7 +174,11 @@ void FeedTreeModel::rebuildVisible() {
     .expanded = true,
     .has_children = !childrenOf(QString{}).isEmpty(),
   });
-  appendVisible(QString{}, 1);
+  if (filter_text_.isEmpty()) {
+    appendVisible(QString{}, 1);
+  } else {
+    appendFiltered(QString{}, 1);
+  }
   endResetModel();
 }
 
@@ -178,6 +196,29 @@ void FeedTreeModel::appendVisible(const QString &parent_id, const int depth) {
     });
     if (has_children && expanded) {
       appendVisible(child_id, depth + 1);
+    }
+  }
+}
+
+void FeedTreeModel::appendFiltered(const QString &parent_id, const int depth) {
+  const auto children = childrenOf(parent_id);
+  for (const auto &child_id : children) {
+    const auto node = nodes_.value(child_id);
+    const bool has_children = !childrenOf(child_id).isEmpty();
+    const bool subtree_matches = subtreeMatchesFilter(child_id);
+    if (!subtree_matches) {
+      continue;
+    }
+
+    visible_nodes_.push_back(VisibleNode{
+      .node = node,
+      .depth = depth,
+      .expanded = has_children,
+      .has_children = has_children,
+    });
+
+    if (has_children) {
+      appendFiltered(child_id, depth + 1);
     }
   }
 }
@@ -214,6 +255,24 @@ bool FeedTreeModel::isDescendantOf(const QString &node_id, const QString &ancest
     current_id = current_it->parent_id;
   }
   return false;
+}
+
+bool FeedTreeModel::subtreeMatchesFilter(const QString &node_id) const {
+  const auto node_it = nodes_.find(node_id);
+  if (node_it == nodes_.end()) {
+    return false;
+  }
+  if (nodeMatchesFilter(*node_it)) {
+    return true;
+  }
+  const auto children = childrenOf(node_id);
+  return std::any_of(children.cbegin(), children.cend(), [this](const auto &child_id) {
+    return subtreeMatchesFilter(child_id);
+  });
+}
+
+bool FeedTreeModel::nodeMatchesFilter(const TreeNodeData &node) const {
+  return node.title.contains(filter_text_, Qt::CaseInsensitive);
 }
 
 void FeedTreeModel::removeDescendants(const QString &node_id) {

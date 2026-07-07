@@ -10,6 +10,7 @@ namespace onerss::desktop {
 
 class FeedTreeModel final : public QAbstractListModel {
   Q_OBJECT
+  Q_PROPERTY(QString filterText READ filterText WRITE setFilterText NOTIFY filterTextChanged)
 
  public:
   enum Roles {
@@ -40,6 +41,11 @@ class FeedTreeModel final : public QAbstractListModel {
   Q_INVOKABLE QVariantMap nodeData(const QString &node_id) const;
   Q_INVOKABLE bool canReparent(const QString &node_id, const QString &parent_id) const;
   [[nodiscard]] QString titleForNode(const QString &node_id) const;
+  [[nodiscard]] QString filterText() const;
+  void setFilterText(const QString &value);
+
+ signals:
+  void filterTextChanged();
 
  private:
   struct VisibleNode {
@@ -51,14 +57,18 @@ class FeedTreeModel final : public QAbstractListModel {
 
   void rebuildVisible();
   void appendVisible(const QString &parent_id, int depth);
+  void appendFiltered(const QString &parent_id, int depth);
   [[nodiscard]] QVector<QString> childrenOf(const QString &parent_id) const;
   [[nodiscard]] bool isDescendantOf(const QString &node_id, const QString &ancestor_id) const;
+  [[nodiscard]] bool subtreeMatchesFilter(const QString &node_id) const;
+  [[nodiscard]] bool nodeMatchesFilter(const TreeNodeData &node) const;
   void removeDescendants(const QString &node_id);
 
   TreeNodeData root_node_;
   QHash<QString, TreeNodeData> nodes_;
   QVector<VisibleNode> visible_nodes_;
   QSet<QString> expanded_nodes_;
+  QString filter_text_;
 };
 
 }  // namespace onerss::desktop

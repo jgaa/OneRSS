@@ -8,6 +8,7 @@
 
 #include <QObject>
 #include <QHash>
+#include <QStringList>
 #include <QTimer>
 
 namespace onerss::desktop {
@@ -32,6 +33,8 @@ class MainViewModel final : public QObject {
   Q_PROPERTY(bool selectedArticleIsRead READ selectedArticleIsRead NOTIFY selectedArticleStateChanged)
   Q_PROPERTY(bool canLoadMoreArticles READ canLoadMoreArticles NOTIFY articlePagingChanged)
   Q_PROPERTY(bool loadingMoreArticles READ loadingMoreArticles NOTIFY articlePagingChanged)
+  Q_PROPERTY(QString articleSearchQuery READ articleSearchQuery NOTIFY articleSearchChanged)
+  Q_PROPERTY(bool showingReadArticles READ showingReadArticles NOTIFY articleFilterChanged)
 
  public:
   explicit MainViewModel(QObject *parent = nullptr);
@@ -55,6 +58,8 @@ class MainViewModel final : public QObject {
   [[nodiscard]] bool selectedArticleIsRead() const;
   [[nodiscard]] bool canLoadMoreArticles() const;
   [[nodiscard]] bool loadingMoreArticles() const;
+  [[nodiscard]] QString articleSearchQuery() const;
+  [[nodiscard]] bool showingReadArticles() const;
 
   Q_INVOKABLE void reconnect();
   Q_INVOKABLE QVariantMap nodeData(const QString &node_id) const;
@@ -83,6 +88,13 @@ class MainViewModel final : public QObject {
   Q_INVOKABLE void clearStatusBar();
   Q_INVOKABLE void requestFeedTitleLookup(const QString &feed_url);
   Q_INVOKABLE void loadMoreArticles();
+  Q_INVOKABLE void setFeedFilterText(const QString &text);
+  Q_INVOKABLE void searchArticles(const QString &query);
+  Q_INVOKABLE void setShowingReadArticles(bool value);
+  Q_INVOKABLE void toggleShowingReadArticles();
+  Q_INVOKABLE void copyArticleUrl(int row);
+  Q_INVOKABLE void importFeeds();
+  Q_INVOKABLE void exportFeeds();
 
  public slots:
   void onPeerMaterialStored();
@@ -97,6 +109,8 @@ class MainViewModel final : public QObject {
   void previewChanged();
   void selectedArticleStateChanged();
   void articlePagingChanged();
+  void articleSearchChanged();
+  void articleFilterChanged();
 
  private:
   struct CachedArticlePage {
@@ -115,9 +129,14 @@ class MainViewModel final : public QObject {
   void performHealthCheck();
   [[nodiscard]] bool isNetworkReachable() const;
   void handleNetworkReachabilityChanged();
+  void handleNetworkEnvironmentChanged();
   [[nodiscard]] QVector<ArticleData> enrichArticles(const QVector<ArticleData> &articles) const;
   [[nodiscard]] bool markSelectedArticleRead();
   void setPreviewFromArticle(const QVariantMap &article);
+  void stopForNetworkLoss();
+  void deferReconnectUntilNetworkChanges(const QString &detail);
+  [[nodiscard]] QString currentNetworkEnvironmentFingerprint() const;
+  [[nodiscard]] bool errorSuggestsServerRouteUnavailable(const QString &message) const;
 
   FeedTreeModel feed_tree_model_;
   ArticleListModel article_list_model_;
@@ -134,12 +153,17 @@ class MainViewModel final : public QObject {
   QString selected_article_link_;
   QHash<QString, CachedArticlePage> article_cache_;
   QTimer health_check_timer_;
+  QTimer network_change_timer_;
   QTimer reconnect_timer_;
   QString loaded_articles_node_id_ = QStringLiteral("__root__");
+  QString article_search_query_;
+  QString last_network_environment_fingerprint_;
+  bool showing_read_articles_ = true;
   int next_article_offset_ = 0;
   bool can_load_more_articles_ = false;
   bool loading_more_articles_ = false;
   bool reconnect_in_progress_ = false;
+  bool waiting_for_network_change_ = false;
 };
 
 }  // namespace onerss::desktop

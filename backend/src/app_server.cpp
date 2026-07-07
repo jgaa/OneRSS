@@ -17,7 +17,6 @@ namespace {
 using boost::asio::ip::tcp;
 namespace ssl = boost::asio::ssl;
 
-constexpr std::size_t kAllFeedsMaxArticles = 1000;
 constexpr std::size_t kDefaultFeedPageSize = 200;
 
 onerss::pb::UserSettings toProto(const UserSettingsRecord &record) {
@@ -241,29 +240,20 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
       } else if (request.has_fetch_articles_request()) {
         auto *payload = response.mutable_articles_response();
         const auto node_id = request.fetch_articles_request().node_id();
+        const auto title_query = request.fetch_articles_request().title_query();
+        const auto unread_only = request.fetch_articles_request().unread_only();
         const auto requested_offset = static_cast<std::size_t>(request.fetch_articles_request().offset());
         const auto requested_limit = static_cast<std::size_t>(request.fetch_articles_request().limit());
-        const bool all_feeds = node_id.empty();
-
-        if (all_feeds && requested_offset >= kAllFeedsMaxArticles) {
-          payload->set_has_more(false);
-          payload->set_next_offset(static_cast<std::uint32_t>(requested_offset));
-        } else {
-          const auto page_limit = requested_limit == 0
-                                    ? (all_feeds ? kAllFeedsMaxArticles : kDefaultFeedPageSize)
-                                    : requested_limit;
-          const auto effective_limit = all_feeds
-                                         ? std::min(page_limit, kAllFeedsMaxArticles - requested_offset)
-                                         : page_limit;
-          const auto articles = tree_repository_.listArticles(user_id_, node_id, requested_offset, effective_limit + 1);
-          const auto has_more = articles.size() > effective_limit;
-          const auto article_count = has_more ? effective_limit : articles.size();
-          for (std::size_t i = 0; i < article_count; ++i) {
-            *payload->add_articles() = toProto(articles[i]);
-          }
-          payload->set_has_more(has_more);
-          payload->set_next_offset(static_cast<std::uint32_t>(requested_offset + article_count));
+        const auto effective_limit = requested_limit == 0 ? kDefaultFeedPageSize : requested_limit;
+        const auto articles
+          = tree_repository_.listArticles(user_id_, node_id, title_query, unread_only, requested_offset, effective_limit + 1);
+        const auto has_more = articles.size() > effective_limit;
+        const auto article_count = has_more ? effective_limit : articles.size();
+        for (std::size_t i = 0; i < article_count; ++i) {
+          *payload->add_articles() = toProto(articles[i]);
         }
+        payload->set_has_more(has_more);
+        payload->set_next_offset(static_cast<std::uint32_t>(requested_offset + article_count));
         attachNotification(response,
                            onerss::pb::UI_MESSAGE_SEVERITY_INFO,
                            onerss::pb::UI_MESSAGE_CODE_ARTICLES_LOADED,
@@ -296,7 +286,14 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
         reply->set_node_id(payload.node_id());
         reply->set_changed_count(static_cast<std::uint32_t>(changed));
         if (changed > 0) {
-          server_.broadcastArticlesUpdated(user_id_, device_id_, payload.node_id());
+          std::string notification_node_id = payload.node_id();
+          if (!payload.node_id().empty()) {
+            const auto node = tree_repository_.getNode(user_id_, payload.node_id());
+            if (node.type == onerss::pb::TreeNode::TYPE_FOLDER) {
+              notification_node_id.clear();
+            }
+          }
+          server_.broadcastArticlesUpdated(user_id_, device_id_, notification_node_id);
         }
       } else {
         throw std::runtime_error{"unsupported app request"};

@@ -81,15 +81,31 @@ Frame {
         Rectangle {
             Layout.fillWidth: true
             color: "#e8dfd2"
-            implicitHeight: 52
+            implicitHeight: 60
 
-            Label {
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.left: parent.left
+            RowLayout {
+                anchors.fill: parent
                 anchors.leftMargin: 16
-                text: root.headerText
-                font.pixelSize: 20
-                font.bold: true
+                anchors.rightMargin: 16
+                spacing: 10
+
+                Label {
+                    text: root.headerText
+                    font.pixelSize: 20
+                    font.bold: true
+                }
+
+                TextField {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    placeholderText: qsTr("Search feeds")
+                    selectByMouse: true
+                    onTextChanged: {
+                        if (root.viewModel) {
+                            root.viewModel.setFeedFilterText(text)
+                        }
+                    }
+                }
             }
         }
 
@@ -264,7 +280,7 @@ Frame {
 
                     Action {
                         text: qsTr("Mark All Read")
-                        enabled: nodeType === 1 && !synthetic
+                        enabled: true
                         onTriggered: root.markAllReadRequested(nodeId)
                     }
 

@@ -161,6 +161,8 @@ message FetchArticlesRequest {
   string node_id = 1;
   uint32 offset = 2;
   uint32 limit = 3;
+  string title_query = 4;
+  bool unread_only = 5;
 }
 
 message ArticlesResponse {

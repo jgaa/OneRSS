@@ -10,6 +10,7 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --share=ipc
+  - --filesystem=xdg-documents
   - --talk-name=org.freedesktop.portal.Desktop
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.kde.kwalletd5

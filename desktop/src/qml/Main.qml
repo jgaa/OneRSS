@@ -157,6 +157,18 @@ ApplicationWindow {
             title: qsTr("File")
 
             Action {
+                text: qsTr("Import Feeds...")
+                onTriggered: mainViewModel.importFeeds()
+            }
+
+            Action {
+                text: qsTr("Export Feeds...")
+                onTriggered: mainViewModel.exportFeeds()
+            }
+
+            MenuSeparator {}
+
+            Action {
                 text: qsTr("Sign Up / Pair Device...")
                 onTriggered: signupDialog.open()
             }
@@ -173,6 +185,17 @@ ApplicationWindow {
             Action {
                 text: qsTr("Quit")
                 onTriggered: Qt.quit()
+            }
+        }
+
+        Menu {
+            title: qsTr("View")
+
+            Action {
+                text: qsTr("Hide read articles")
+                checkable: true
+                checked: !mainViewModel.showingReadArticles
+                onTriggered: mainViewModel.toggleShowingReadArticles()
             }
         }
 
@@ -203,6 +226,15 @@ ApplicationWindow {
         Action {
             text: qsTr("Settings")
             onTriggered: settingsDialog.open()
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: qsTr("Hide read articles")
+            checkable: true
+            checked: !mainViewModel.showingReadArticles
+            onTriggered: mainViewModel.toggleShowingReadArticles()
         }
 
         MenuSeparator {}
@@ -610,6 +642,7 @@ ApplicationWindow {
                         SplitView.minimumHeight: 200
                         SplitView.preferredHeight: 320
                         viewModel: mainViewModel
+                        titleText: selectedNodeTitle()
                         formatTimestamp: formatArticleTimestamp
                         showOpenButton: true
                         showUnreadButton: true

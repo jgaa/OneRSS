@@ -142,13 +142,19 @@ int AppClient::fetchUnreadCount() {
   return static_cast<int>(response.unreadCountResponse().unreadCount());
 }
 
-ArticlePage AppClient::fetchArticles(const QString &node_id, const int offset, const int limit) {
+ArticlePage AppClient::fetchArticles(const QString &node_id,
+                                     const QString &title_query,
+                                     const bool unread_only,
+                                     const int offset,
+                                     const int limit) {
   onerss::pb::IncomingEnvelope request_envelope;
   request_envelope.setRequestId(QString::fromStdString(newRequestId()));
   onerss::pb::FetchArticlesRequest payload;
   payload.setNodeId(node_id == QStringLiteral("__root__") ? QString{} : node_id);
   payload.setOffset(static_cast<QtProtobuf::uint32>(std::max(0, offset)));
   payload.setLimit(static_cast<QtProtobuf::uint32>(std::max(0, limit)));
+  payload.setTitleQuery(title_query.trimmed());
+  payload.setUnreadOnly(unread_only);
   request_envelope.setFetchArticlesRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
@@ -214,7 +220,7 @@ int AppClient::markAllArticlesRead(const QString &node_id) {
   onerss::pb::IncomingEnvelope request_envelope;
   request_envelope.setRequestId(QString::fromStdString(newRequestId()));
   onerss::pb::MarkAllArticlesReadRequest payload;
-  payload.setNodeId(node_id);
+  payload.setNodeId(node_id == QStringLiteral("__root__") ? QString{} : node_id);
   request_envelope.setMarkAllArticlesReadRequest(std::move(payload));
   const auto response = request(request_envelope);
   emitUserNotification(response);
