@@ -6,6 +6,7 @@
 
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
+#include <sqlite3.h>
 
 #include <algorithm>
 #include <chrono>
@@ -150,6 +151,9 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
         hello->set_user_id(user_id_);
         hello->set_device_id(device_id_);
         hello->set_login(login_);
+        hello->set_server_version(ONERSS_VERSION);
+        hello->set_database_name("SQLite");
+        hello->set_database_version(sqlite3_libversion());
         attachNotification(response,
                            onerss::pb::UI_MESSAGE_SEVERITY_SUCCESS,
                            onerss::pb::UI_MESSAGE_CODE_CONNECTED,

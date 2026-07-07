@@ -4,6 +4,23 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "desktop/**"
+      - "proto/**"
+      - "flatpak/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - ".github/workflows/flatpak.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "desktop/**"
+      - "proto/**"
+      - "flatpak/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - ".github/workflows/flatpak.yml"
 
 jobs:
   flatpak:

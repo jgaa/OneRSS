@@ -28,6 +28,11 @@ target_include_directories(onerss-backend
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
+target_compile_definitions(onerss-backend
+  PRIVATE
+    ONERSS_VERSION="${PROJECT_VERSION}"
+)
+
 target_link_libraries(onerss-backend
   PRIVATE
     onerss_proto

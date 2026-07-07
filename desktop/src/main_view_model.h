@@ -35,6 +35,10 @@ class MainViewModel final : public QObject {
   Q_PROPERTY(bool loadingMoreArticles READ loadingMoreArticles NOTIFY articlePagingChanged)
   Q_PROPERTY(QString articleSearchQuery READ articleSearchQuery NOTIFY articleSearchChanged)
   Q_PROPERTY(bool showingReadArticles READ showingReadArticles NOTIFY articleFilterChanged)
+  Q_PROPERTY(QString serverVersion READ serverVersion NOTIFY serverInfoChanged)
+  Q_PROPERTY(QString serverDatabaseName READ serverDatabaseName NOTIFY serverInfoChanged)
+  Q_PROPERTY(QString serverDatabaseVersion READ serverDatabaseVersion NOTIFY serverInfoChanged)
+  Q_PROPERTY(bool hasServerInfo READ hasServerInfo NOTIFY serverInfoChanged)
 
  public:
   explicit MainViewModel(QObject *parent = nullptr);
@@ -60,6 +64,10 @@ class MainViewModel final : public QObject {
   [[nodiscard]] bool loadingMoreArticles() const;
   [[nodiscard]] QString articleSearchQuery() const;
   [[nodiscard]] bool showingReadArticles() const;
+  [[nodiscard]] QString serverVersion() const;
+  [[nodiscard]] QString serverDatabaseName() const;
+  [[nodiscard]] QString serverDatabaseVersion() const;
+  [[nodiscard]] bool hasServerInfo() const;
 
   Q_INVOKABLE void reconnect();
   Q_INVOKABLE QVariantMap nodeData(const QString &node_id) const;
@@ -111,6 +119,7 @@ class MainViewModel final : public QObject {
   void articlePagingChanged();
   void articleSearchChanged();
   void articleFilterChanged();
+  void serverInfoChanged();
 
  private:
   struct CachedArticlePage {
@@ -151,6 +160,9 @@ class MainViewModel final : public QObject {
   QString preview_meta_;
   QString preview_content_;
   QString selected_article_link_;
+  QString server_version_;
+  QString server_database_name_;
+  QString server_database_version_;
   QHash<QString, CachedArticlePage> article_cache_;
   QTimer health_check_timer_;
   QTimer network_change_timer_;

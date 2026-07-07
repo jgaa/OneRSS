@@ -28,12 +28,21 @@ struct UserSettingsData {
   int default_refresh_interval_hours = 12;
 };
 
+struct AppHelloData {
+  QString user_id;
+  QString login;
+  QString device_id;
+  QString server_version;
+  QString database_name;
+  QString database_version;
+};
+
 class AppClient final {
  public:
   AppClient();
   ~AppClient();
 
-  void connectAndStart(const StoredPeer &peer);
+  [[nodiscard]] AppHelloData connectAndStart(const StoredPeer &peer);
   void stop();
   [[nodiscard]] QVector<TreeNodeData> fetchTree();
   [[nodiscard]] UserSettingsData fetchUserSettings();

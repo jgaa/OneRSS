@@ -42,13 +42,28 @@ onerss::pb::UserSettings toProto(const UserSettingsData &settings) {
 
 }  // namespace
 
+namespace {
+
+AppHelloData fromProto(const onerss::pb::AppHelloResponse &response) {
+  return AppHelloData{
+    .user_id = response.userId(),
+    .login = response.login(),
+    .device_id = response.deviceId(),
+    .server_version = response.serverVersion(),
+    .database_name = response.databaseName(),
+    .database_version = response.databaseVersion(),
+  };
+}
+
+}  // namespace
+
 AppClient::AppClient() = default;
 
 AppClient::~AppClient() {
   stop();
 }
 
-void AppClient::connectAndStart(const StoredPeer &peer) {
+AppHelloData AppClient::connectAndStart(const StoredPeer &peer) {
   stop();
   peer_ = peer;
   running_ = true;
@@ -69,6 +84,7 @@ void AppClient::connectAndStart(const StoredPeer &peer) {
                               toUiStatusMessage(response.error().userNotification())};
   }
   LOG_INFO << "Authenticated app client as device_id=" << peer_.device_id.toStdString();
+  return fromProto(response.appHelloResponse());
 }
 
 void AppClient::stop() {

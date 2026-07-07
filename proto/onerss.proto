@@ -71,6 +71,9 @@ message AppHelloResponse {
   string user_id = 1;
   string login = 2;
   string device_id = 3;
+  string server_version = 4;
+  string database_name = 5;
+  string database_version = 6;
 }
 
 message UserSettings {

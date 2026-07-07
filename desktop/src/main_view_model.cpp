@@ -413,6 +413,22 @@ bool MainViewModel::showingReadArticles() const {
   return showing_read_articles_;
 }
 
+QString MainViewModel::serverVersion() const {
+  return server_version_;
+}
+
+QString MainViewModel::serverDatabaseName() const {
+  return server_database_name_;
+}
+
+QString MainViewModel::serverDatabaseVersion() const {
+  return server_database_version_;
+}
+
+bool MainViewModel::hasServerInfo() const {
+  return !server_version_.isEmpty() || !server_database_name_.isEmpty() || !server_database_version_.isEmpty();
+}
+
 void MainViewModel::reconnect() {
   if (reconnect_in_progress_) {
     return;
@@ -452,13 +468,13 @@ void MainViewModel::reconnect() {
                                 [this]() { setConnectionStatus(tr("Connecting to server...")); },
                                 Qt::QueuedConnection);
       app_client_.stop();
-      app_client_.connectAndStart(peer);
+      const auto hello = app_client_.connectAndStart(peer);
       app_client_.ping();
       const auto settings = app_client_.fetchUserSettings();
       const auto unread_count = app_client_.fetchUnreadCount();
       const auto nodes = app_client_.fetchTree();
       QMetaObject::invokeMethod(this,
-                                [this, settings, unread_count, nodes]() {
+                                [this, hello, settings, unread_count, nodes]() {
                                   reconnect_in_progress_ = false;
                                   waiting_for_network_change_ = false;
                                   if (default_refresh_interval_hours_ != settings.default_refresh_interval_hours) {
@@ -470,6 +486,14 @@ void MainViewModel::reconnect() {
                                     emit unreadCountChanged();
                                   }
                                   feed_tree_model_.loadNodes(nodes);
+                                  if (server_version_ != hello.server_version
+                                      || server_database_name_ != hello.database_name
+                                      || server_database_version_ != hello.database_version) {
+                                    server_version_ = hello.server_version;
+                                    server_database_name_ = hello.database_name;
+                                    server_database_version_ = hello.database_version;
+                                    emit serverInfoChanged();
+                                  }
                                   setConnectionStatus(tr("Connected"));
                                   health_check_timer_.start();
                                   reloadArticlesForCurrentNode();
@@ -481,6 +505,13 @@ void MainViewModel::reconnect() {
                                 [this, message = QString::fromUtf8(error.what())]() {
                                   reconnect_in_progress_ = false;
                                   health_check_timer_.stop();
+                                  if (!server_version_.isEmpty() || !server_database_name_.isEmpty()
+                                      || !server_database_version_.isEmpty()) {
+                                    server_version_.clear();
+                                    server_database_name_.clear();
+                                    server_database_version_.clear();
+                                    emit serverInfoChanged();
+                                  }
                                   if (!isNetworkReachable()) {
                                     stopForNetworkLoss();
                                     return;
@@ -1339,6 +1370,12 @@ void MainViewModel::stopForNetworkLoss() {
   waiting_for_network_change_ = false;
   reconnect_timer_.stop();
   health_check_timer_.stop();
+  if (!server_version_.isEmpty() || !server_database_name_.isEmpty() || !server_database_version_.isEmpty()) {
+    server_version_.clear();
+    server_database_name_.clear();
+    server_database_version_.clear();
+    emit serverInfoChanged();
+  }
   setConnectionStatus(tr("Waiting for network"));
   setStatusBarMessage(UiStatusMessage{
     .severity = UiStatusMessage::Severity::Warning,
@@ -1352,6 +1389,12 @@ void MainViewModel::deferReconnectUntilNetworkChanges(const QString &detail) {
   waiting_for_network_change_ = true;
   reconnect_timer_.stop();
   health_check_timer_.stop();
+  if (!server_version_.isEmpty() || !server_database_name_.isEmpty() || !server_database_version_.isEmpty()) {
+    server_version_.clear();
+    server_database_name_.clear();
+    server_database_version_.clear();
+    emit serverInfoChanged();
+  }
   setConnectionStatus(tr("Waiting for network change"));
   setStatusBarMessage(UiStatusMessage{
     .severity = UiStatusMessage::Severity::Warning,

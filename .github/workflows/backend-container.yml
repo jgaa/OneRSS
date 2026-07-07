@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "backend/**"
+      - "proto/**"
+      - "Dockerfile.backend"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - ".github/workflows/backend-container.yml"
 
 permissions:
   contents: read

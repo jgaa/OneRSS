@@ -54,6 +54,23 @@ Dialog {
                 Label { text: qsTr("Build date") }
                 Label { text: AppInfo.buildDate }
             }
+
+            GridLayout {
+                width: parent.width
+                columns: 2
+                columnSpacing: 16
+                rowSpacing: 8
+                visible: mainViewModel.connectionState === 2 && mainViewModel.hasServerInfo
+
+                Label { text: qsTr("Server version") }
+                Label { text: mainViewModel.serverVersion }
+
+                Label { text: qsTr("Database") }
+                Label { text: mainViewModel.serverDatabaseName }
+
+                Label { text: qsTr("Database version") }
+                Label { text: mainViewModel.serverDatabaseVersion }
+            }
         }
     }
 }
