@@ -657,6 +657,23 @@ ApplicationWindow {
 
                 SplitView {
                     orientation: Qt.Vertical
+                    handle: Rectangle {
+                        implicitWidth: window.splitHandleThickness
+                        implicitHeight: window.splitHandleThickness
+                        color: SplitHandle.pressed ? "#c7b39b" : (SplitHandle.hovered ? "#d8c3a5" : "#e9e0d3")
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: SplitHandle.orientation === Qt.Horizontal
+                                   ? parent.width
+                                   : window.splitHandleLineThickness
+                            height: SplitHandle.orientation === Qt.Horizontal
+                                    ? window.splitHandleLineThickness
+                                    : parent.height
+                            radius: window.splitHandleLineThickness / 2
+                            color: SplitHandle.pressed ? "#7a5c3e" : "#8d7962"
+                        }
+                    }
 
                     ArticleListPane {
                         SplitView.minimumHeight: 200
