@@ -606,11 +606,11 @@ ApplicationWindow {
                     Rectangle {
                         anchors.centerIn: parent
                         width: SplitHandle.orientation === Qt.Horizontal
-                               ? parent.width
-                               : window.splitHandleLineThickness
+                               ? window.splitHandleLineThickness
+                               : parent.width
                         height: SplitHandle.orientation === Qt.Horizontal
-                                ? window.splitHandleLineThickness
-                                : parent.height
+                                ? parent.height
+                                : window.splitHandleLineThickness
                         radius: window.splitHandleLineThickness / 2
                         color: SplitHandle.pressed ? "#7a5c3e" : "#8d7962"
                     }
@@ -665,11 +665,11 @@ ApplicationWindow {
                         Rectangle {
                             anchors.centerIn: parent
                             width: SplitHandle.orientation === Qt.Horizontal
-                                   ? parent.width
-                                   : window.splitHandleLineThickness
+                                   ? window.splitHandleLineThickness
+                                   : parent.width
                             height: SplitHandle.orientation === Qt.Horizontal
-                                    ? window.splitHandleLineThickness
-                                    : parent.height
+                                    ? parent.height
+                                    : window.splitHandleLineThickness
                             radius: window.splitHandleLineThickness / 2
                             color: SplitHandle.pressed ? "#7a5c3e" : "#8d7962"
                         }
