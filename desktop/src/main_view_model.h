@@ -1,5 +1,6 @@
 #pragma once
 
+#include "browser_profile_manager.h"
 #include "article_list_model.h"
 #include "app_client.h"
 #include "feed_tree_model.h"
@@ -40,6 +41,7 @@ class MainViewModel final : public QObject {
   Q_PROPERTY(QString serverDatabaseName READ serverDatabaseName NOTIFY serverInfoChanged)
   Q_PROPERTY(QString serverDatabaseVersion READ serverDatabaseVersion NOTIFY serverInfoChanged)
   Q_PROPERTY(bool hasServerInfo READ hasServerInfo NOTIFY serverInfoChanged)
+  Q_PROPERTY(BrowserProfileManager *browserProfileManager READ browserProfileManager CONSTANT)
 
  public:
   explicit MainViewModel(QObject *parent = nullptr);
@@ -70,6 +72,7 @@ class MainViewModel final : public QObject {
   [[nodiscard]] QString serverDatabaseName() const;
   [[nodiscard]] QString serverDatabaseVersion() const;
   [[nodiscard]] bool hasServerInfo() const;
+  [[nodiscard]] BrowserProfileManager *browserProfileManager();
 
   Q_INVOKABLE void reconnect();
   Q_INVOKABLE QVariantMap nodeData(const QString &node_id) const;
@@ -95,7 +98,8 @@ class MainViewModel final : public QObject {
   Q_INVOKABLE void updateUserRefreshIntervalHours(int hours);
   Q_INVOKABLE void markSelectedArticleUnread();
   Q_INVOKABLE void toggleSelectedArticleQueued();
-  Q_INVOKABLE void openSelectedArticle();
+  Q_INVOKABLE void openSelectedArticle(const QString &profile_id = QString{});
+  Q_INVOKABLE void openArticleAtRow(int row, const QString &profile_id = QString{});
   Q_INVOKABLE void clearStatusBar();
   Q_INVOKABLE void requestFeedTitleLookup(const QString &feed_url);
   Q_INVOKABLE void loadMoreArticles();
@@ -152,6 +156,7 @@ class MainViewModel final : public QObject {
 
   FeedTreeModel feed_tree_model_;
   ArticleListModel article_list_model_;
+  BrowserProfileManager browser_profile_manager_;
   SecretStore secret_store_;
   AppClient app_client_;
   QString connection_status_ = tr("Disconnected");

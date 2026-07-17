@@ -216,8 +216,14 @@ Frame {
                         if (!root.viewModel) {
                             return
                         }
-                        root.viewModel.selectArticleRow(index)
-                        root.openInBrowserRequested()
+                        root.viewModel.openArticleAtRow(index)
+                    }
+
+                    function openInBrowserWithProfile(profileId) {
+                        if (!root.viewModel) {
+                            return
+                        }
+                        root.viewModel.openArticleAtRow(index, profileId)
                     }
 
                     function showContextMenu() {
@@ -329,6 +335,43 @@ Frame {
                             text: qsTr("Open in Browser")
                             enabled: linkUrl.length > 0
                             onTriggered: openInBrowser()
+                        }
+
+                        Menu {
+                            id: openWithMenu
+                            title: qsTr("Open With")
+                            enabled: linkUrl.length > 0
+                                     && root.viewModel
+                                     && root.viewModel.browserProfileManager
+                                     && root.viewModel.browserProfileManager.customBrowserProfilesSupported
+                                     && root.viewModel.browserProfileManager.browserProfiles.length > 0
+
+                            MenuItem {
+                                text: qsTr("System Default Browser")
+                                onTriggered: openInBrowser()
+                            }
+
+                            MenuSeparator {}
+
+                            Instantiator {
+                                model: root.viewModel
+                                       && root.viewModel.browserProfileManager
+                                       ? root.viewModel.browserProfileManager.browserProfiles : []
+
+                                delegate: MenuItem {
+                                    required property var modelData
+                                    text: modelData.displayName
+                                    onTriggered: openInBrowserWithProfile(modelData.id)
+                                }
+
+                                onObjectAdded: function(index, object) {
+                                    openWithMenu.insertItem(index + 2, object)
+                                }
+
+                                onObjectRemoved: function(index, object) {
+                                    openWithMenu.removeItem(object)
+                                }
+                            }
                         }
 
                         MenuItem {

@@ -46,6 +46,7 @@ qt_add_executable(onerss-desktop
   src/article_types.cpp
   src/app_info.cpp
   src/app_client.cpp
+  src/browser_profile_manager.cpp
   src/feed_tree_model.cpp
   src/feed_title_resolver.cpp
   src/main.cpp
@@ -74,6 +75,7 @@ qt_add_qml_module(onerss-desktop
     src/qml/AboutDialog.qml
     src/qml/ArticleListPane.qml
     src/qml/ArticlePreviewPane.qml
+    src/qml/BrowserSettings.qml
     src/qml/FeedPane.qml
     src/qml/GeneralSettings.qml
     src/qml/LoggingSettings.qml

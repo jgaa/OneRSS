@@ -25,6 +25,7 @@ Dialog {
             Layout.fillWidth: true
 
             TabButton { text: qsTr("General") }
+            TabButton { text: qsTr("Browsers") }
             TabButton { text: qsTr("Logging") }
         }
 
@@ -41,6 +42,10 @@ Dialog {
                 }
             }
 
+            BrowserSettings {
+                id: browserSettings
+            }
+
             LoggingSettings {
                 id: loggingSettings
             }
@@ -49,15 +54,18 @@ Dialog {
 
     onOpened: {
         generalSettings.reload()
+        browserSettings.reload()
         loggingSettings.reload()
     }
     onAccepted: {
         generalSettings.commit()
+        browserSettings.commit()
         loggingSettings.commit()
         close()
     }
     onRejected: {
         generalSettings.revert()
+        browserSettings.revert()
         loggingSettings.revert()
         close()
     }

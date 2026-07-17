@@ -438,6 +438,10 @@ bool MainViewModel::hasServerInfo() const {
   return !server_version_.isEmpty() || !server_database_name_.isEmpty() || !server_database_version_.isEmpty();
 }
 
+BrowserProfileManager *MainViewModel::browserProfileManager() {
+  return &browser_profile_manager_;
+}
+
 void MainViewModel::reconnect() {
   if (reconnect_in_progress_) {
     return;
@@ -821,12 +825,28 @@ void MainViewModel::toggleSelectedArticleQueued() {
   });
 }
 
-void MainViewModel::openSelectedArticle() {
+void MainViewModel::openSelectedArticle(const QString &profile_id) {
   static_cast<void>(markSelectedArticleRead());
   if (selected_article_link_.isEmpty()) {
     return;
   }
-  QDesktopServices::openUrl(QUrl{selected_article_link_});
+
+  QString error_message;
+  if (!browser_profile_manager_.openUrl(selected_article_link_, profile_id, &error_message)) {
+    setStatusBarMessage(UiStatusMessage{
+      .severity = UiStatusMessage::Severity::Warning,
+      .text = tr("Could not open the article in a browser."),
+      .detail = error_message
+    });
+  }
+}
+
+void MainViewModel::openArticleAtRow(const int row, const QString &profile_id) {
+  if (row < 0) {
+    return;
+  }
+  selectArticleRow(row);
+  openSelectedArticle(profile_id);
 }
 
 void MainViewModel::clearStatusBar() {
