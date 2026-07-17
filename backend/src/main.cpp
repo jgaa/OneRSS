@@ -8,6 +8,8 @@
 
 #include <boost/program_options.hpp>
 
+#include <atomic>
+#include <exception>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -96,11 +98,26 @@ int main(int argc, char **argv) {
       bind_address,
       static_cast<std::uint16_t>(app_port)};
 
-    std::jthread signup_thread([&signup_server]() { signup_server.run(); });
+    std::exception_ptr signup_error;
+    std::atomic_bool signup_failed{false};
+    std::jthread signup_thread([&signup_server, &signup_error, &signup_failed]() {
+      try {
+        signup_server.run();
+      } catch (...) {
+        signup_error = std::current_exception();
+        signup_failed.store(true);
+      }
+    });
     app_server.run();
+    if (signup_failed.load() && signup_error != nullptr) {
+      std::rethrow_exception(signup_error);
+    }
     return 0;
   } catch (const std::exception &error) {
-    std::cerr << "Fatal error: " << error.what() << '\n';
+    LOG_ERROR << "Fatal backend error: " << error.what();
+    return 1;
+  } catch (...) {
+    LOG_ERROR << "Fatal backend error: unknown exception";
     return 1;
   }
 }

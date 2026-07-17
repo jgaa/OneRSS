@@ -9,7 +9,11 @@
 #include <sqlite3.h>
 
 #include <algorithm>
+#include <boost/system/system_error.hpp>
 #include <chrono>
+#include <exception>
+#include <memory>
+#include <mutex>
 #include <thread>
 
 namespace onerss::backend {
@@ -84,16 +88,19 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
   void run() {
     try {
       auto context = createSslContext(user_store_.authority());
-      ssl::stream<tcp::socket> stream{std::move(socket_), context};
-      stream_ = &stream;
-      stream.handshake(ssl::stream_base::server);
-      authenticate(stream);
+      auto stream = std::make_shared<ssl::stream<tcp::socket>>(std::move(socket_), context);
+      {
+        std::scoped_lock lock{stream_mutex_};
+        stream_ = stream;
+      }
+      stream->handshake(ssl::stream_base::server);
+      authenticate(*stream);
       server_.registerSession(user_id_, shared_from_this());
 
       writer_thread_ = std::thread([this]() { writeLoop(); });
 
       for (;;) {
-        auto request = readEnvelope<ssl::stream<tcp::socket>, onerss::pb::IncomingEnvelope>(stream);
+        auto request = readEnvelope<ssl::stream<tcp::socket>, onerss::pb::IncomingEnvelope>(*stream);
         handleRequest(request);
       }
     } catch (const std::exception &error) {
@@ -112,6 +119,8 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
     if (writer_thread_.joinable()) {
       writer_thread_.join();
     }
+    std::scoped_lock lock{stream_mutex_};
+    stream_.reset();
   }
 
   void authenticate(ssl::stream<tcp::socket> &stream) {
@@ -336,10 +345,15 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
     try {
       onerss::pb::OutgoingEnvelope envelope;
       while (outgoing_.waitPop(envelope)) {
-        if (stream_ == nullptr) {
+        std::shared_ptr<ssl::stream<tcp::socket>> stream;
+        {
+          std::scoped_lock lock{stream_mutex_};
+          stream = stream_;
+        }
+        if (!stream) {
           break;
         }
-        writeEnvelope<ssl::stream<tcp::socket>, onerss::pb::OutgoingEnvelope>(*stream_, envelope);
+        writeEnvelope<ssl::stream<tcp::socket>, onerss::pb::OutgoingEnvelope>(*stream, envelope);
       }
     } catch (const std::exception &error) {
       LOG_WARN << "App session writer failed: " << error.what();
@@ -351,7 +365,8 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
   TreeRepository &tree_repository_;
   FeedFetcher &feed_fetcher_;
   tcp::socket socket_;
-  ssl::stream<tcp::socket> *stream_ = nullptr;
+  std::mutex stream_mutex_;
+  std::shared_ptr<ssl::stream<tcp::socket>> stream_;
   std::string user_id_;
   std::string device_id_;
   std::string login_;
@@ -380,18 +395,31 @@ AppServer::AppServer(UserStore &user_store,
       port_{port} {}
 
 void AppServer::run() {
-  scheduler_.start();
-  scheduler_.scheduleExistingFeeds();
-  boost::asio::io_context io_context;
-  tcp::endpoint endpoint{boost::asio::ip::make_address(bind_address_), port_};
-  tcp::acceptor acceptor{io_context, endpoint};
+  try {
+    scheduler_.start();
+    scheduler_.scheduleExistingFeeds();
+    boost::asio::io_context io_context;
+    tcp::endpoint endpoint{boost::asio::ip::make_address(bind_address_), port_};
+    tcp::acceptor acceptor{io_context, endpoint};
 
-  LOG_INFO << "App server listening on " << bind_address_ << ":" << port_;
-  for (;;) {
-    tcp::socket socket{io_context};
-    acceptor.accept(socket);
-    LOG_DEBUG << "Accepted app connection from " << socket.remote_endpoint();
-    std::make_shared<AppSession>(*this, user_store_, tree_repository_, feed_fetcher_, std::move(socket))->start();
+    LOG_INFO << "App server listening on " << bind_address_ << ":" << port_;
+    for (;;) {
+      tcp::socket socket{io_context};
+      acceptor.accept(socket);
+      LOG_DEBUG << "Accepted app connection from " << socket.remote_endpoint();
+      std::make_shared<AppSession>(*this, user_store_, tree_repository_, feed_fetcher_, std::move(socket))->start();
+    }
+  } catch (const boost::system::system_error &error) {
+    LOG_ERROR << "App server failed on " << bind_address_ << ":" << port_
+              << ": " << error.what()
+              << " [code=" << error.code().value() << " category=" << error.code().category().name() << "]";
+    throw;
+  } catch (const std::exception &error) {
+    LOG_ERROR << "App server failed on " << bind_address_ << ":" << port_ << ": " << error.what();
+    throw;
+  } catch (...) {
+    LOG_ERROR << "App server failed on " << bind_address_ << ":" << port_ << ": unknown exception";
+    throw;
   }
 }
 

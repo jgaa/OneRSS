@@ -7,8 +7,11 @@
 
 #include <arpa/inet.h>
 
+#include <boost/system/system_error.hpp>
+
 #include <array>
 #include <cstring>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -73,16 +76,29 @@ SignupServer::SignupServer(UserStore &user_store,
     : user_store_{user_store}, bind_address_{std::move(bind_address)}, port_{port}, app_port_{app_port} {}
 
 void SignupServer::run() {
-  boost::asio::io_context io_context;
-  tcp::endpoint endpoint{boost::asio::ip::make_address(bind_address_), port_};
-  tcp::acceptor acceptor{io_context, endpoint};
+  try {
+    boost::asio::io_context io_context;
+    tcp::endpoint endpoint{boost::asio::ip::make_address(bind_address_), port_};
+    tcp::acceptor acceptor{io_context, endpoint};
 
-  LOG_INFO << "Signup server listening on " << bind_address_ << ":" << port_;
-  for (;;) {
-    tcp::socket socket{io_context};
-    acceptor.accept(socket);
-    LOG_DEBUG << "Accepted signup connection from " << socket.remote_endpoint();
-    handleClient(std::move(socket));
+    LOG_INFO << "Signup server listening on " << bind_address_ << ":" << port_;
+    for (;;) {
+      tcp::socket socket{io_context};
+      acceptor.accept(socket);
+      LOG_DEBUG << "Accepted signup connection from " << socket.remote_endpoint();
+      handleClient(std::move(socket));
+    }
+  } catch (const boost::system::system_error &error) {
+    LOG_ERROR << "Signup server failed on " << bind_address_ << ":" << port_
+              << ": " << error.what()
+              << " [code=" << error.code().value() << " category=" << error.code().category().name() << "]";
+    throw;
+  } catch (const std::exception &error) {
+    LOG_ERROR << "Signup server failed on " << bind_address_ << ":" << port_ << ": " << error.what();
+    throw;
+  } catch (...) {
+    LOG_ERROR << "Signup server failed on " << bind_address_ << ":" << port_ << ": unknown exception";
+    throw;
   }
 }
 

@@ -38,6 +38,9 @@ void writeEnvelope(Stream &stream, const Envelope &envelope) {
   if (!envelope.SerializeToString(&payload)) {
     throw std::runtime_error{"failed to serialize protobuf envelope"};
   }
+  if (payload.size() > 1024 * 1024) {
+    throw std::runtime_error{"protobuf envelope exceeds maximum size"};
+  }
 
   const auto frame_size = htonl(static_cast<std::uint32_t>(payload.size()));
   boost::asio::write(stream, boost::asio::buffer(&frame_size, sizeof(frame_size)));

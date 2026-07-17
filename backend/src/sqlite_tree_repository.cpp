@@ -1,3 +1,4 @@
+#include "article_sanitizer.h"
 #include "sqlite_tree_repository.h"
 
 #include "logging.h"
@@ -7,11 +8,14 @@
 #include <sqlite3.h>
 
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 
 namespace onerss::backend {
 namespace {
+
+constexpr std::int64_t kCurrentDataVersion = 2;
 
 struct StatementDeleter {
   void operator()(sqlite3_stmt *statement) const noexcept {
@@ -46,11 +50,42 @@ int columnInt(sqlite3_stmt &statement, const int index) {
   return sqlite3_column_int(&statement, index);
 }
 
+std::int64_t columnInt64(sqlite3_stmt &statement, const int index) {
+  return sqlite3_column_int64(&statement, index);
+}
+
+std::int64_t readDataVersion(sqlite3 &db) {
+  auto select = prepare(db, "SELECT value FROM system_kv WHERE key = 'data_version'");
+  const auto rc = sqlite3_step(select.get());
+  if (rc == SQLITE_DONE) {
+    return 0;
+  }
+  if (rc != SQLITE_ROW) {
+    throw std::runtime_error{sqlite3_errmsg(&db)};
+  }
+  const auto value = columnText(*select, 0);
+  if (value.empty()) {
+    return 0;
+  }
+  return std::stoll(value);
+}
+
+void writeDataVersion(sqlite3 &db, const std::int64_t version) {
+  auto update = prepare(db, "INSERT OR REPLACE INTO system_kv(key, value) VALUES('data_version', ?1)");
+  const auto version_text = std::to_string(version);
+  if (sqlite3_bind_text(update.get(), 1, version_text.c_str(), static_cast<int>(version_text.size()), SQLITE_TRANSIENT)
+      != SQLITE_OK) {
+    throw std::runtime_error{sqlite3_errmsg(&db)};
+  }
+  checkStepDone(db, sqlite3_step(update.get()));
+}
+
 }  // namespace
 
 SqliteTreeRepository::SqliteTreeRepository(const std::filesystem::path &database_path)
     : db_{openDatabase(database_path)} {
   ensureSchema();
+  migrateDataIfNeeded();
 }
 
 std::vector<TreeNodeRecord> SqliteTreeRepository::listNodesForUser(const std::string &user_id) {
@@ -235,11 +270,26 @@ std::size_t SqliteTreeRepository::upsertArticles(const std::string &user_id,
 
   std::size_t new_entries = 0;
   for (const auto &article : articles) {
+    auto sanitized = sanitizeArticleForStorage(article);
+    if (!sanitized.accepted) {
+      LOG_WARN << "Rejected article for node=" << node_id
+               << " title=" << article.title
+               << " guid=" << article.guid
+               << " reason=" << sanitized.rejection_reason;
+      continue;
+    }
+    if (sanitized.content_capped) {
+      LOG_WARN << "Capped article content for node=" << node_id
+               << " title=" << sanitized.article.title
+               << " guid=" << sanitized.article.guid
+               << " max_bytes=" << maxStoredArticleContentBytes();
+    }
+
     sqlite3_reset(exists.get());
     sqlite3_clear_bindings(exists.get());
     bindText(*exists, 1, user_id);
     bindText(*exists, 2, node_id);
-    bindText(*exists, 3, article.guid);
+    bindText(*exists, 3, sanitized.article.guid);
     const auto exists_rc = sqlite3_step(exists.get());
     if (exists_rc == SQLITE_ROW) {
       // already present
@@ -249,18 +299,18 @@ std::size_t SqliteTreeRepository::upsertArticles(const std::string &user_id,
       throw std::runtime_error{sqlite3_errmsg(db_.get())};
     }
 
-    const auto article_id = article.article_id.empty() ? newUuid() : article.article_id;
+    const auto article_id = sanitized.article.article_id.empty() ? newUuid() : sanitized.article.article_id;
     sqlite3_reset(insert.get());
     sqlite3_clear_bindings(insert.get());
     bindText(*insert, 1, article_id);
     bindText(*insert, 2, user_id);
     bindText(*insert, 3, node_id);
-    bindText(*insert, 4, article.guid);
-    bindText(*insert, 5, article.title);
-    bindText(*insert, 6, article.link_url);
-    bindText(*insert, 7, article.published_at);
-    bindText(*insert, 8, article.author);
-    bindText(*insert, 9, article.content);
+    bindText(*insert, 4, sanitized.article.guid);
+    bindText(*insert, 5, sanitized.article.title);
+    bindText(*insert, 6, sanitized.article.link_url);
+    bindText(*insert, 7, sanitized.article.published_at);
+    bindText(*insert, 8, sanitized.article.author);
+    bindText(*insert, 9, sanitized.article.content);
     checkStepDone(*db_, sqlite3_step(insert.get()));
   }
   return new_entries;
@@ -342,7 +392,7 @@ std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string 
       throw std::runtime_error{sqlite3_errmsg(db_.get())};
     }
 
-    articles.push_back(ArticleRecord{
+    auto article = ArticleRecord{
       .article_id = columnText(*select, 0),
       .user_id = columnText(*select, 1),
       .node_id = columnText(*select, 2),
@@ -353,7 +403,15 @@ std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string 
       .author = columnText(*select, 7),
       .content = columnText(*select, 8),
       .is_read = columnInt(*select, 9) != 0,
-    });
+    };
+    auto sanitized = sanitizeArticleForStorage(std::move(article));
+    if (!sanitized.accepted) {
+      LOG_WARN << "Skipping stored article " << sanitized.article.article_id
+               << " for node=" << sanitized.article.node_id
+               << " reason=" << sanitized.rejection_reason;
+      continue;
+    }
+    articles.push_back(std::move(sanitized.article));
   }
 
   return articles;
@@ -439,6 +497,11 @@ std::size_t SqliteTreeRepository::markAllArticlesRead(const std::string &user_id
 
 void SqliteTreeRepository::ensureSchema() {
   execute(*db_,
+          "CREATE TABLE IF NOT EXISTS system_kv ("
+          "  key TEXT PRIMARY KEY,"
+          "  value BLOB NOT NULL"
+          ");");
+  execute(*db_,
           "CREATE TABLE IF NOT EXISTS tree_nodes ("
           "  id TEXT PRIMARY KEY,"
           "  user_id TEXT NOT NULL,"
@@ -491,6 +554,102 @@ void SqliteTreeRepository::ensureSchema() {
     }
   }
   execute(*db_, "CREATE INDEX IF NOT EXISTS articles_user_node_idx ON articles(user_id, node_id);");
+}
+
+void SqliteTreeRepository::migrateDataIfNeeded() {
+  const auto current_version = readDataVersion(*db_);
+  if (current_version >= kCurrentDataVersion) {
+    return;
+  }
+
+  LOG_INFO << "Upgrading article data version from " << current_version << " to " << kCurrentDataVersion;
+  execute(*db_, "BEGIN IMMEDIATE TRANSACTION;");
+  try {
+    scanAndSanitizeArticles();
+    writeDataVersion(*db_, kCurrentDataVersion);
+    execute(*db_, "COMMIT;");
+  } catch (...) {
+    try {
+      execute(*db_, "ROLLBACK;");
+    } catch (...) {
+    }
+    throw;
+  }
+  LOG_INFO << "Article data upgrade completed at version " << kCurrentDataVersion;
+}
+
+void SqliteTreeRepository::scanAndSanitizeArticles() {
+  auto select = prepare(*db_,
+                        "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, "
+                        "is_read FROM articles");
+  auto update = prepare(
+    *db_,
+    "UPDATE articles SET article_guid = ?1, title = ?2, link_url = ?3, published_at = ?4, author = ?5, content = ?6 "
+    "WHERE id = ?7");
+  auto remove = prepare(*db_, "DELETE FROM articles WHERE id = ?1");
+
+  std::vector<ArticleRecord> stored_articles;
+  while (true) {
+    const auto rc = sqlite3_step(select.get());
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    if (rc != SQLITE_ROW) {
+      throw std::runtime_error{sqlite3_errmsg(db_.get())};
+    }
+    stored_articles.push_back(ArticleRecord{
+      .article_id = columnText(*select, 0),
+      .user_id = columnText(*select, 1),
+      .node_id = columnText(*select, 2),
+      .guid = columnText(*select, 3),
+      .title = columnText(*select, 4),
+      .link_url = columnText(*select, 5),
+      .published_at = columnText(*select, 6),
+      .author = columnText(*select, 7),
+      .content = columnText(*select, 8),
+      .is_read = columnInt(*select, 9) != 0,
+    });
+  }
+
+  std::size_t updated_rows = 0;
+  std::size_t deleted_rows = 0;
+  std::size_t capped_rows = 0;
+  for (auto &article : stored_articles) {
+    auto sanitized = sanitizeArticleForStorage(std::move(article));
+    if (!sanitized.accepted) {
+      sqlite3_reset(remove.get());
+      sqlite3_clear_bindings(remove.get());
+      bindText(*remove, 1, sanitized.article.article_id);
+      checkStepDone(*db_, sqlite3_step(remove.get()));
+      ++deleted_rows;
+      LOG_WARN << "Removed stored article " << sanitized.article.article_id
+               << " for node=" << sanitized.article.node_id
+               << " reason=" << sanitized.rejection_reason;
+      continue;
+    }
+    if (!sanitized.modified) {
+      continue;
+    }
+
+    sqlite3_reset(update.get());
+    sqlite3_clear_bindings(update.get());
+    bindText(*update, 1, sanitized.article.guid);
+    bindText(*update, 2, sanitized.article.title);
+    bindText(*update, 3, sanitized.article.link_url);
+    bindText(*update, 4, sanitized.article.published_at);
+    bindText(*update, 5, sanitized.article.author);
+    bindText(*update, 6, sanitized.article.content);
+    bindText(*update, 7, sanitized.article.article_id);
+    checkStepDone(*db_, sqlite3_step(update.get()));
+    ++updated_rows;
+    if (sanitized.content_capped) {
+      ++capped_rows;
+    }
+  }
+
+  LOG_INFO << "Sanitized stored articles updated=" << updated_rows
+           << " deleted=" << deleted_rows
+           << " capped=" << capped_rows;
 }
 
 void SqliteTreeRepository::validateReparentLocked(const std::string &user_id,

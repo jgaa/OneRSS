@@ -46,6 +46,8 @@ class SqliteTreeRepository final : public TreeRepository {
 
  private:
   void ensureSchema();
+  void migrateDataIfNeeded();
+  void scanAndSanitizeArticles();
   void validateReparentLocked(const std::string &user_id,
                               const std::string &node_id,
                               const std::string &parent_id);

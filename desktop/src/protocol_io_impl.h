@@ -62,6 +62,9 @@ void writeEnvelope(Stream &stream, const Envelope &envelope) {
   if (serializer.lastError() != QAbstractProtobufSerializer::Error::None) {
     throw std::runtime_error{"failed to serialize protobuf envelope"};
   }
+  if (payload.size() > 1024 * 1024) {
+    throw std::runtime_error{"protobuf envelope exceeds maximum size"};
+  }
 
   const auto frame_size = htonl(static_cast<std::uint32_t>(payload.size()));
   const char *frame_data = reinterpret_cast<const char *>(&frame_size);

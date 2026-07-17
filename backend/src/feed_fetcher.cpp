@@ -1,5 +1,6 @@
 #include "feed_fetcher.h"
 
+#include "article_sanitizer.h"
 #include "html_sanitizer.h"
 #include "logging.h"
 
@@ -38,6 +39,8 @@ namespace beast = boost::beast;
 namespace http = beast::http;
 namespace ssl = asio::ssl;
 using tcp = asio::ip::tcp;
+
+constexpr std::size_t kMaxFeedBodyBytes = 8 * 1024 * 1024;
 
 struct ParsedUrl {
   std::string host;
@@ -119,7 +122,8 @@ asio::awaitable<FetchResult> fetchOnce(const ParsedUrl &url) {
   request.set(http::field::accept, "application/rss+xml, application/xml, text/xml, */*");
 
   beast::flat_buffer buffer;
-  http::response<http::string_body> response;
+  http::response_parser<http::string_body> parser;
+  parser.body_limit(kMaxFeedBodyBytes);
 
   if (url.https) {
     ssl::context ssl_context{ssl::context::tls_client};
@@ -129,18 +133,19 @@ asio::awaitable<FetchResult> fetchOnce(const ParsedUrl &url) {
     co_await beast::get_lowest_layer(stream).async_connect(endpoints, asio::use_awaitable);
     co_await stream.async_handshake(ssl::stream_base::client, asio::use_awaitable);
     co_await http::async_write(stream, request, asio::use_awaitable);
-    co_await http::async_read(stream, buffer, response, asio::use_awaitable);
+    co_await http::async_read(stream, buffer, parser, asio::use_awaitable);
     beast::error_code ignored;
     co_await stream.async_shutdown(asio::redirect_error(asio::use_awaitable, ignored));
   } else {
     beast::tcp_stream stream{executor};
     co_await stream.async_connect(endpoints, asio::use_awaitable);
     co_await http::async_write(stream, request, asio::use_awaitable);
-    co_await http::async_read(stream, buffer, response, asio::use_awaitable);
+    co_await http::async_read(stream, buffer, parser, asio::use_awaitable);
     beast::error_code ignored;
     stream.socket().shutdown(tcp::socket::shutdown_both, ignored);
   }
 
+  auto response = parser.release();
   FetchResult result;
   result.status = static_cast<unsigned>(response.result_int());
   result.body = response.body();
@@ -428,8 +433,29 @@ std::vector<ArticleRecord> FeedFetcher::fetchArticles(const TreeNodeRecord &feed
 
   io_context.run();
   const auto body = future.get();
-  auto articles = parseFeedXml(body, feed_node);
-  LOG_INFO << "Fetched " << articles.size() << " articles for feed node=" << feed_node.node_id;
+  auto parsed_articles = parseFeedXml(body, feed_node);
+  std::vector<ArticleRecord> articles;
+  articles.reserve(parsed_articles.size());
+  std::size_t rejected_articles = 0;
+  std::size_t capped_articles = 0;
+  for (auto &article : parsed_articles) {
+    auto sanitized = sanitizeArticleForStorage(std::move(article));
+    if (!sanitized.accepted) {
+      ++rejected_articles;
+      LOG_WARN << "Rejected feed article for node=" << feed_node.node_id
+               << " title=" << sanitized.article.title
+               << " guid=" << sanitized.article.guid
+               << " reason=" << sanitized.rejection_reason;
+      continue;
+    }
+    if (sanitized.content_capped) {
+      ++capped_articles;
+    }
+    articles.push_back(std::move(sanitized.article));
+  }
+  LOG_INFO << "Fetched " << articles.size() << " articles for feed node=" << feed_node.node_id
+           << " rejected=" << rejected_articles
+           << " capped=" << capped_articles;
   return articles;
 }
 
