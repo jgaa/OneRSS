@@ -13,6 +13,7 @@ ArticleData fromProto(const onerss::pb::Article &article) {
     .author = article.author(),
     .content = article.content(),
     .is_read = article.isRead(),
+    .is_queued = article.isQueued(),
   };
 }
 

@@ -11,6 +11,7 @@ Frame {
     property bool showPreviewButton: false
     property bool showOpenButton: false
     property bool showUnreadButton: false
+    property bool showQueuedButton: false
     property string titleText: qsTr("Article List")
     property string emptySubtitle: qsTr("Your article list will appear here after feeds are added and synchronized.")
     property var formatTimestamp: function(value) { return value }
@@ -19,6 +20,7 @@ Frame {
     signal previewRequested()
     signal openInBrowserRequested()
     signal markUnreadRequested()
+    signal toggleQueuedRequested()
     signal articlePreviewRequested(int row)
     signal searchRequested(string query)
 
@@ -82,7 +84,7 @@ Frame {
         }
 
         RowLayout {
-            visible: root.showPreviewButton || root.showOpenButton || root.showUnreadButton
+            visible: root.showPreviewButton || root.showOpenButton || root.showUnreadButton || root.showQueuedButton
             Layout.fillWidth: true
 
             Button {
@@ -110,6 +112,16 @@ Frame {
                          && root.viewModel.articleListModel.selectedRow >= 0
                          && root.viewModel.selectedArticleIsRead
                 onClicked: root.markUnreadRequested()
+            }
+
+            Button {
+                visible: root.showQueuedButton
+                         && !!root.viewModel
+                         && root.viewModel.articleListModel.selectedRow >= 0
+                text: !!root.viewModel && root.viewModel.selectedArticleIsQueued
+                      ? qsTr("Unqueue")
+                      : qsTr("Queue")
+                onClicked: root.toggleQueuedRequested()
             }
         }
 
@@ -162,6 +174,7 @@ Frame {
                 delegate: Item {
                     required property int index
                     required property bool isRead
+                    required property bool isQueued
                     required property bool selected
                     required property string title
                     required property string feedTitle
@@ -228,13 +241,25 @@ Frame {
                             anchors.bottomMargin: root.narrowMode ? 8 : 7
                             spacing: 3
 
-                            Label {
+                            RowLayout {
                                 width: parent.width
-                                text: title.length > 0 ? title : qsTr("(Untitled article)")
-                                font.pixelSize: 15
-                                font.bold: !isRead
-                                color: isRead ? "#000000" : "#1d6f2a"
-                                elide: Text.ElideRight
+                                spacing: 6
+
+                                MaterialIcon {
+                                    visible: isQueued
+                                    text: "bookmark"
+                                    iconSize: 16
+                                    color: "#8d5a16"
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: title.length > 0 ? title : qsTr("(Untitled article)")
+                                    font.pixelSize: 15
+                                    font.bold: !isRead
+                                    color: isRead ? "#000000" : "#1d6f2a"
+                                    elide: Text.ElideRight
+                                }
                             }
 
                             Label {

@@ -18,6 +18,8 @@ struct ArticleRecord {
   std::string author;
   std::string content;
   bool is_read = false;
+  bool is_queued = false;
+  std::string original_article_id;
 };
 
 onerss::pb::Article toProto(const ArticleRecord &record);

@@ -17,6 +17,7 @@ struct ArticleData {
   QString author;
   QString content;
   bool is_read = false;
+  bool is_queued = false;
 
   [[nodiscard]] QVariantMap toVariantMap() const {
     QVariantMap map;
@@ -29,6 +30,7 @@ struct ArticleData {
     map.insert(QStringLiteral("author"), author);
     map.insert(QStringLiteral("content"), content);
     map.insert(QStringLiteral("isRead"), is_read);
+    map.insert(QStringLiteral("isQueued"), is_queued);
     return map;
   }
 };

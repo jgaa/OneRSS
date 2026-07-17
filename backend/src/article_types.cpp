@@ -12,6 +12,7 @@ onerss::pb::Article toProto(const ArticleRecord &record) {
   article.set_author(record.author);
   article.set_content(record.content);
   article.set_is_read(record.is_read);
+  article.set_is_queued(record.is_queued);
   return article;
 }
 

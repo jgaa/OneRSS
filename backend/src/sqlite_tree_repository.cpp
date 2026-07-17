@@ -15,7 +15,8 @@
 namespace onerss::backend {
 namespace {
 
-constexpr std::int64_t kCurrentDataVersion = 2;
+constexpr std::int64_t kCurrentDataVersion = 3;
+constexpr std::string_view kQueueNodeId = "__queue__";
 
 struct StatementDeleter {
   void operator()(sqlite3_stmt *statement) const noexcept {
@@ -249,6 +250,27 @@ std::vector<TreeNodeRecord> SqliteTreeRepository::listAllFeeds() {
   return nodes;
 }
 
+namespace {
+
+ArticleRecord readArticleRecord(sqlite3_stmt &statement) {
+  return ArticleRecord{
+    .article_id = columnText(statement, 0),
+    .user_id = columnText(statement, 1),
+    .node_id = columnText(statement, 2),
+    .guid = columnText(statement, 3),
+    .title = columnText(statement, 4),
+    .link_url = columnText(statement, 5),
+    .published_at = columnText(statement, 6),
+    .author = columnText(statement, 7),
+    .content = columnText(statement, 8),
+    .is_read = columnInt(statement, 9) != 0,
+    .is_queued = columnInt(statement, 10) != 0,
+    .original_article_id = columnText(statement, 11),
+  };
+}
+
+}  // namespace
+
 std::size_t SqliteTreeRepository::upsertArticles(const std::string &user_id,
                                                  const std::string &node_id,
                                                  const std::vector<ArticleRecord> &articles) {
@@ -277,6 +299,11 @@ std::size_t SqliteTreeRepository::upsertArticles(const std::string &user_id,
                << " guid=" << article.guid
                << " reason=" << sanitized.rejection_reason;
       continue;
+    }
+    if (sanitized.content_control_bytes_normalized) {
+      LOG_WARN << "Normalized control bytes in article content for node=" << node_id
+               << " title=" << sanitized.article.title
+               << " guid=" << sanitized.article.guid;
     }
     if (sanitized.content_capped) {
       LOG_WARN << "Capped article content for node=" << node_id
@@ -327,14 +354,34 @@ std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string 
     return {};
   }
   const bool all_feeds = node_id.empty();
+  const bool queue_view = node_id == kQueueNodeId;
   statement_ptr select;
-  if (all_feeds) {
+  if (queue_view) {
+    select = prepare(
+      *db_,
+      "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, is_read, 1, "
+      "original_article_id "
+      "FROM queued_articles WHERE user_id = ?1 "
+      "AND (?2 = '' OR instr(lower(title), lower(?2)) > 0) "
+      "AND (?3 = 0 OR is_read = 0) "
+      "ORDER BY published_at DESC, id DESC LIMIT ?4 OFFSET ?5");
+    bindText(*select, 1, user_id);
+    bindText(*select, 2, title_query);
+    sqlite3_bind_int(select.get(), 3, unread_only ? 1 : 0);
+    sqlite3_bind_int64(select.get(), 4, static_cast<sqlite3_int64>(limit));
+    sqlite3_bind_int64(select.get(), 5, static_cast<sqlite3_int64>(offset));
+  } else if (all_feeds) {
     select = prepare(*db_,
-                     "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, "
-                     "is_read FROM articles WHERE user_id = ?1 "
-                     "AND (?2 = '' OR instr(lower(title), lower(?2)) > 0) "
-                     "AND (?3 = 0 OR is_read = 0) "
-                     "ORDER BY published_at DESC, id DESC LIMIT ?4 OFFSET ?5");
+                     "SELECT a.id, a.user_id, a.node_id, a.article_guid, a.title, a.link_url, a.published_at, "
+                     "a.author, a.content, a.is_read, "
+                     "CASE WHEN q.original_article_id IS NULL THEN 0 ELSE 1 END AS is_queued, "
+                     "COALESCE(q.original_article_id, '') "
+                     "FROM articles a "
+                     "LEFT JOIN queued_articles q ON q.user_id = a.user_id AND q.original_article_id = a.id "
+                     "WHERE a.user_id = ?1 "
+                     "AND (?2 = '' OR instr(lower(a.title), lower(?2)) > 0) "
+                     "AND (?3 = 0 OR a.is_read = 0) "
+                     "ORDER BY a.published_at DESC, a.id DESC LIMIT ?4 OFFSET ?5");
     bindText(*select, 1, user_id);
     bindText(*select, 2, title_query);
     sqlite3_bind_int(select.get(), 3, unread_only ? 1 : 0);
@@ -352,12 +399,16 @@ std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string 
         "  JOIN subtree parent ON child.parent_id = parent.id "
         "  WHERE child.user_id = ?1"
         ") "
-        "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, is_read "
-        "FROM articles WHERE user_id = ?1 AND node_id IN ("
+        "SELECT a.id, a.user_id, a.node_id, a.article_guid, a.title, a.link_url, a.published_at, a.author, "
+        "a.content, a.is_read, CASE WHEN q.original_article_id IS NULL THEN 0 ELSE 1 END AS is_queued, "
+        "COALESCE(q.original_article_id, '') "
+        "FROM articles a "
+        "LEFT JOIN queued_articles q ON q.user_id = a.user_id AND q.original_article_id = a.id "
+        "WHERE a.user_id = ?1 AND a.node_id IN ("
         "  SELECT id FROM subtree WHERE node_type = ?3"
-        ") AND (?4 = '' OR instr(lower(title), lower(?4)) > 0) "
-        "AND (?5 = 0 OR is_read = 0) "
-        "ORDER BY published_at DESC, id DESC LIMIT ?6 OFFSET ?7");
+        ") AND (?4 = '' OR instr(lower(a.title), lower(?4)) > 0) "
+        "AND (?5 = 0 OR a.is_read = 0) "
+        "ORDER BY a.published_at DESC, a.id DESC LIMIT ?6 OFFSET ?7");
       bindText(*select, 1, user_id);
       bindText(*select, 2, node_id);
       sqlite3_bind_int(select.get(), 3, onerss::pb::TreeNode::TYPE_FEED);
@@ -368,11 +419,15 @@ std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string 
     } else {
       select = prepare(
         *db_,
-        "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, is_read "
-        "FROM articles WHERE user_id = ?1 AND node_id = ?2 "
-        "AND (?3 = '' OR instr(lower(title), lower(?3)) > 0) "
-        "AND (?4 = 0 OR is_read = 0) "
-        "ORDER BY published_at DESC, id DESC LIMIT ?5 OFFSET ?6");
+        "SELECT a.id, a.user_id, a.node_id, a.article_guid, a.title, a.link_url, a.published_at, a.author, "
+        "a.content, a.is_read, CASE WHEN q.original_article_id IS NULL THEN 0 ELSE 1 END AS is_queued, "
+        "COALESCE(q.original_article_id, '') "
+        "FROM articles a "
+        "LEFT JOIN queued_articles q ON q.user_id = a.user_id AND q.original_article_id = a.id "
+        "WHERE a.user_id = ?1 AND a.node_id = ?2 "
+        "AND (?3 = '' OR instr(lower(a.title), lower(?3)) > 0) "
+        "AND (?4 = 0 OR a.is_read = 0) "
+        "ORDER BY a.published_at DESC, a.id DESC LIMIT ?5 OFFSET ?6");
       bindText(*select, 1, user_id);
       bindText(*select, 2, node_id);
       bindText(*select, 3, title_query);
@@ -392,18 +447,7 @@ std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string 
       throw std::runtime_error{sqlite3_errmsg(db_.get())};
     }
 
-    auto article = ArticleRecord{
-      .article_id = columnText(*select, 0),
-      .user_id = columnText(*select, 1),
-      .node_id = columnText(*select, 2),
-      .guid = columnText(*select, 3),
-      .title = columnText(*select, 4),
-      .link_url = columnText(*select, 5),
-      .published_at = columnText(*select, 6),
-      .author = columnText(*select, 7),
-      .content = columnText(*select, 8),
-      .is_read = columnInt(*select, 9) != 0,
-    };
+    auto article = readArticleRecord(*select);
     auto sanitized = sanitizeArticleForStorage(std::move(article));
     if (!sanitized.accepted) {
       LOG_WARN << "Skipping stored article " << sanitized.article.article_id
@@ -432,34 +476,161 @@ std::size_t SqliteTreeRepository::markArticleRead(const std::string &user_id,
                                                   const std::string &node_id,
                                                   const std::string &article_id) {
   std::scoped_lock lock{mutex_};
-  auto update = prepare(*db_,
-                        "UPDATE articles SET is_read = 1 "
-                        "WHERE user_id = ?1 AND node_id = ?2 AND id = ?3 AND is_read = 0");
-  bindText(*update, 1, user_id);
-  bindText(*update, 2, node_id);
-  bindText(*update, 3, article_id);
-  checkStepDone(*db_, sqlite3_step(update.get()));
-  return static_cast<std::size_t>(sqlite3_changes(db_.get()));
+  const bool queue_view = node_id == kQueueNodeId;
+  statement_ptr update_primary;
+  statement_ptr update_queue;
+  if (queue_view) {
+    update_primary = prepare(*db_,
+                             "UPDATE queued_articles SET is_read = 1 "
+                             "WHERE user_id = ?1 AND id = ?2 AND is_read = 0");
+    update_queue = prepare(*db_,
+                           "UPDATE articles SET is_read = 1 "
+                           "WHERE user_id = ?1 AND id = ("
+                           "  SELECT original_article_id FROM queued_articles WHERE user_id = ?1 AND id = ?2"
+                           ") AND is_read = 0");
+    bindText(*update_primary, 1, user_id);
+    bindText(*update_primary, 2, article_id);
+    bindText(*update_queue, 1, user_id);
+    bindText(*update_queue, 2, article_id);
+  } else {
+    update_primary = prepare(*db_,
+                             "UPDATE articles SET is_read = 1 "
+                             "WHERE user_id = ?1 AND node_id = ?2 AND id = ?3 AND is_read = 0");
+    update_queue = prepare(*db_,
+                           "UPDATE queued_articles SET is_read = 1 "
+                           "WHERE user_id = ?1 AND original_article_id = ?2 AND is_read = 0");
+    bindText(*update_primary, 1, user_id);
+    bindText(*update_primary, 2, node_id);
+    bindText(*update_primary, 3, article_id);
+    bindText(*update_queue, 1, user_id);
+    bindText(*update_queue, 2, article_id);
+  }
+  checkStepDone(*db_, sqlite3_step(update_primary.get()));
+  const auto changed_primary = sqlite3_changes(db_.get());
+  checkStepDone(*db_, sqlite3_step(update_queue.get()));
+  const auto changed_queue = sqlite3_changes(db_.get());
+  return static_cast<std::size_t>(std::max(changed_primary, changed_queue));
 }
 
 std::size_t SqliteTreeRepository::markArticleUnread(const std::string &user_id,
                                                     const std::string &node_id,
                                                     const std::string &article_id) {
   std::scoped_lock lock{mutex_};
-  auto update = prepare(*db_,
-                        "UPDATE articles SET is_read = 0 "
-                        "WHERE user_id = ?1 AND node_id = ?2 AND id = ?3 AND is_read = 1");
-  bindText(*update, 1, user_id);
-  bindText(*update, 2, node_id);
-  bindText(*update, 3, article_id);
-  checkStepDone(*db_, sqlite3_step(update.get()));
+  const bool queue_view = node_id == kQueueNodeId;
+  statement_ptr update_primary;
+  statement_ptr update_queue;
+  if (queue_view) {
+    update_primary = prepare(*db_,
+                             "UPDATE queued_articles SET is_read = 0 "
+                             "WHERE user_id = ?1 AND id = ?2 AND is_read = 1");
+    update_queue = prepare(*db_,
+                           "UPDATE articles SET is_read = 0 "
+                           "WHERE user_id = ?1 AND id = ("
+                           "  SELECT original_article_id FROM queued_articles WHERE user_id = ?1 AND id = ?2"
+                           ") AND is_read = 1");
+    bindText(*update_primary, 1, user_id);
+    bindText(*update_primary, 2, article_id);
+    bindText(*update_queue, 1, user_id);
+    bindText(*update_queue, 2, article_id);
+  } else {
+    update_primary = prepare(*db_,
+                             "UPDATE articles SET is_read = 0 "
+                             "WHERE user_id = ?1 AND node_id = ?2 AND id = ?3 AND is_read = 1");
+    update_queue = prepare(*db_,
+                           "UPDATE queued_articles SET is_read = 0 "
+                           "WHERE user_id = ?1 AND original_article_id = ?2 AND is_read = 1");
+    bindText(*update_primary, 1, user_id);
+    bindText(*update_primary, 2, node_id);
+    bindText(*update_primary, 3, article_id);
+    bindText(*update_queue, 1, user_id);
+    bindText(*update_queue, 2, article_id);
+  }
+  checkStepDone(*db_, sqlite3_step(update_primary.get()));
+  const auto changed_primary = sqlite3_changes(db_.get());
+  checkStepDone(*db_, sqlite3_step(update_queue.get()));
+  const auto changed_queue = sqlite3_changes(db_.get());
+  return static_cast<std::size_t>(std::max(changed_primary, changed_queue));
+}
+
+std::size_t SqliteTreeRepository::queueArticle(const std::string &user_id,
+                                               const std::string &node_id,
+                                               const std::string &article_id) {
+  std::scoped_lock lock{mutex_};
+  if (node_id == kQueueNodeId) {
+    return 0;
+  }
+
+  auto select = prepare(*db_,
+                        "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, "
+                        "is_read, 0, '' FROM articles "
+                        "WHERE user_id = ?1 AND node_id = ?2 AND id = ?3");
+  bindText(*select, 1, user_id);
+  bindText(*select, 2, node_id);
+  bindText(*select, 3, article_id);
+  const auto rc = sqlite3_step(select.get());
+  if (rc == SQLITE_DONE) {
+    throw std::runtime_error{"article not found"};
+  }
+  if (rc != SQLITE_ROW) {
+    throw std::runtime_error{sqlite3_errmsg(db_.get())};
+  }
+
+  auto article = readArticleRecord(*select);
+  auto insert = prepare(
+    *db_,
+    "INSERT INTO queued_articles(id, user_id, original_article_id, node_id, article_guid, title, link_url, "
+    "published_at, author, content, is_read) "
+    "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) "
+    "ON CONFLICT(user_id, original_article_id) DO NOTHING");
+  bindText(*insert, 1, newUuid());
+  bindText(*insert, 2, user_id);
+  bindText(*insert, 3, article.article_id);
+  bindText(*insert, 4, article.node_id);
+  bindText(*insert, 5, article.guid);
+  bindText(*insert, 6, article.title);
+  bindText(*insert, 7, article.link_url);
+  bindText(*insert, 8, article.published_at);
+  bindText(*insert, 9, article.author);
+  bindText(*insert, 10, article.content);
+  sqlite3_bind_int(insert.get(), 11, article.is_read ? 1 : 0);
+  checkStepDone(*db_, sqlite3_step(insert.get()));
+  return static_cast<std::size_t>(sqlite3_changes(db_.get()));
+}
+
+std::size_t SqliteTreeRepository::unqueueArticle(const std::string &user_id,
+                                                 const std::string &node_id,
+                                                 const std::string &article_id) {
+  std::scoped_lock lock{mutex_};
+  statement_ptr remove;
+  if (node_id == kQueueNodeId) {
+    remove = prepare(*db_, "DELETE FROM queued_articles WHERE user_id = ?1 AND id = ?2");
+    bindText(*remove, 1, user_id);
+    bindText(*remove, 2, article_id);
+  } else {
+    remove = prepare(*db_, "DELETE FROM queued_articles WHERE user_id = ?1 AND original_article_id = ?2");
+    bindText(*remove, 1, user_id);
+    bindText(*remove, 2, article_id);
+  }
+  checkStepDone(*db_, sqlite3_step(remove.get()));
   return static_cast<std::size_t>(sqlite3_changes(db_.get()));
 }
 
 std::size_t SqliteTreeRepository::markAllArticlesRead(const std::string &user_id, const std::string &node_id) {
   std::scoped_lock lock{mutex_};
   statement_ptr update;
-  if (node_id.empty()) {
+  statement_ptr update_queue;
+  if (node_id == kQueueNodeId) {
+    update = prepare(*db_,
+                     "UPDATE queued_articles SET is_read = 1 "
+                     "WHERE user_id = ?1 AND is_read = 0");
+    update_queue = prepare(*db_,
+                           "UPDATE articles SET is_read = 1 "
+                           "WHERE user_id = ?1 AND is_read = 0 AND id IN ("
+                           "  SELECT original_article_id FROM queued_articles WHERE user_id = ?1"
+                           ")");
+    bindText(*update, 1, user_id);
+    bindText(*update_queue, 1, user_id);
+  } else if (node_id.empty()) {
     update = prepare(*db_,
                      "UPDATE articles SET is_read = 1 "
                      "WHERE user_id = ?1 AND is_read = 0");
@@ -492,7 +663,12 @@ std::size_t SqliteTreeRepository::markAllArticlesRead(const std::string &user_id
     }
   }
   checkStepDone(*db_, sqlite3_step(update.get()));
-  return static_cast<std::size_t>(sqlite3_changes(db_.get()));
+  const auto changed_primary = sqlite3_changes(db_.get());
+  if (update_queue) {
+    checkStepDone(*db_, sqlite3_step(update_queue.get()));
+    return static_cast<std::size_t>(std::max(changed_primary, sqlite3_changes(db_.get())));
+  }
+  return static_cast<std::size_t>(changed_primary);
 }
 
 void SqliteTreeRepository::ensureSchema() {
@@ -554,6 +730,23 @@ void SqliteTreeRepository::ensureSchema() {
     }
   }
   execute(*db_, "CREATE INDEX IF NOT EXISTS articles_user_node_idx ON articles(user_id, node_id);");
+  execute(*db_,
+          "CREATE TABLE IF NOT EXISTS queued_articles ("
+          "  id TEXT PRIMARY KEY,"
+          "  user_id TEXT NOT NULL,"
+          "  original_article_id TEXT NOT NULL,"
+          "  node_id TEXT NOT NULL,"
+          "  article_guid TEXT NOT NULL,"
+          "  title TEXT NOT NULL,"
+          "  link_url TEXT NOT NULL DEFAULT '',"
+          "  published_at TEXT NOT NULL DEFAULT '',"
+          "  author TEXT NOT NULL DEFAULT '',"
+          "  content TEXT NOT NULL DEFAULT '',"
+          "  is_read INTEGER NOT NULL DEFAULT 0,"
+          "  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,"
+          "  UNIQUE(user_id, original_article_id)"
+          ");");
+  execute(*db_, "CREATE INDEX IF NOT EXISTS queued_articles_user_idx ON queued_articles(user_id);");
 }
 
 void SqliteTreeRepository::migrateDataIfNeeded() {
@@ -566,6 +759,7 @@ void SqliteTreeRepository::migrateDataIfNeeded() {
   execute(*db_, "BEGIN IMMEDIATE TRANSACTION;");
   try {
     scanAndSanitizeArticles();
+    scanAndSanitizeQueuedArticles();
     writeDataVersion(*db_, kCurrentDataVersion);
     execute(*db_, "COMMIT;");
   } catch (...) {
@@ -581,7 +775,7 @@ void SqliteTreeRepository::migrateDataIfNeeded() {
 void SqliteTreeRepository::scanAndSanitizeArticles() {
   auto select = prepare(*db_,
                         "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, "
-                        "is_read FROM articles");
+                        "is_read, 0, '' FROM articles");
   auto update = prepare(
     *db_,
     "UPDATE articles SET article_guid = ?1, title = ?2, link_url = ?3, published_at = ?4, author = ?5, content = ?6 "
@@ -597,18 +791,7 @@ void SqliteTreeRepository::scanAndSanitizeArticles() {
     if (rc != SQLITE_ROW) {
       throw std::runtime_error{sqlite3_errmsg(db_.get())};
     }
-    stored_articles.push_back(ArticleRecord{
-      .article_id = columnText(*select, 0),
-      .user_id = columnText(*select, 1),
-      .node_id = columnText(*select, 2),
-      .guid = columnText(*select, 3),
-      .title = columnText(*select, 4),
-      .link_url = columnText(*select, 5),
-      .published_at = columnText(*select, 6),
-      .author = columnText(*select, 7),
-      .content = columnText(*select, 8),
-      .is_read = columnInt(*select, 9) != 0,
-    });
+    stored_articles.push_back(readArticleRecord(*select));
   }
 
   std::size_t updated_rows = 0;
@@ -648,6 +831,67 @@ void SqliteTreeRepository::scanAndSanitizeArticles() {
   }
 
   LOG_INFO << "Sanitized stored articles updated=" << updated_rows
+           << " deleted=" << deleted_rows
+           << " capped=" << capped_rows;
+}
+
+void SqliteTreeRepository::scanAndSanitizeQueuedArticles() {
+  auto select = prepare(
+    *db_,
+    "SELECT id, user_id, node_id, article_guid, title, link_url, published_at, author, content, is_read, 1, "
+    "original_article_id FROM queued_articles");
+  auto update = prepare(
+    *db_,
+    "UPDATE queued_articles SET article_guid = ?1, title = ?2, link_url = ?3, published_at = ?4, author = ?5, "
+    "content = ?6 WHERE id = ?7");
+  auto remove = prepare(*db_, "DELETE FROM queued_articles WHERE id = ?1");
+
+  std::vector<ArticleRecord> stored_articles;
+  while (true) {
+    const auto rc = sqlite3_step(select.get());
+    if (rc == SQLITE_DONE) {
+      break;
+    }
+    if (rc != SQLITE_ROW) {
+      throw std::runtime_error{sqlite3_errmsg(db_.get())};
+    }
+    stored_articles.push_back(readArticleRecord(*select));
+  }
+
+  std::size_t updated_rows = 0;
+  std::size_t deleted_rows = 0;
+  std::size_t capped_rows = 0;
+  for (auto &article : stored_articles) {
+    auto sanitized = sanitizeArticleForStorage(std::move(article));
+    if (!sanitized.accepted) {
+      sqlite3_reset(remove.get());
+      sqlite3_clear_bindings(remove.get());
+      bindText(*remove, 1, sanitized.article.article_id);
+      checkStepDone(*db_, sqlite3_step(remove.get()));
+      ++deleted_rows;
+      continue;
+    }
+    if (!sanitized.modified) {
+      continue;
+    }
+
+    sqlite3_reset(update.get());
+    sqlite3_clear_bindings(update.get());
+    bindText(*update, 1, sanitized.article.guid);
+    bindText(*update, 2, sanitized.article.title);
+    bindText(*update, 3, sanitized.article.link_url);
+    bindText(*update, 4, sanitized.article.published_at);
+    bindText(*update, 5, sanitized.article.author);
+    bindText(*update, 6, sanitized.article.content);
+    bindText(*update, 7, sanitized.article.article_id);
+    checkStepDone(*db_, sqlite3_step(update.get()));
+    ++updated_rows;
+    if (sanitized.content_capped) {
+      ++capped_rows;
+    }
+  }
+
+  LOG_INFO << "Sanitized queued articles updated=" << updated_rows
            << " deleted=" << deleted_rows
            << " capped=" << capped_rows;
 }

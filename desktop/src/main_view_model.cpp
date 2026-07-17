@@ -33,6 +33,9 @@
 namespace onerss::desktop {
 namespace {
 
+const auto kRootNodeId = QStringLiteral("__root__");
+const auto kQueueNodeId = QStringLiteral("__queue__");
+
 bool isContainerInterface(const QString &interface_name) {
   const auto normalized = interface_name.trimmed().toLower();
   return normalized.startsWith(QStringLiteral("docker"))
@@ -284,8 +287,10 @@ MainViewModel::MainViewModel(QObject *parent) : QObject(parent) {
                                   article_cache_.clear();
                                 }
                                 if (node_id.isEmpty()
-                                    || selected_node_id_ == QStringLiteral("__root__")
+                                    || selected_node_id_ == kRootNodeId
+                                    || selected_node_id_ == kQueueNodeId
                                     || selected_node_id_ == node_id
+                                    || node_id == kQueueNodeId
                                     || origin_device_id.isEmpty()) {
                                   LOG_TRACE << "Reloading articles after notification for node_id="
                                             << node_id.toStdString();
@@ -395,6 +400,10 @@ bool MainViewModel::hasPreview() const {
 
 bool MainViewModel::selectedArticleIsRead() const {
   return article_list_model_.isReadAt(article_list_model_.selectedRow());
+}
+
+bool MainViewModel::selectedArticleIsQueued() const {
+  return article_list_model_.isQueuedAt(article_list_model_.selectedRow());
 }
 
 bool MainViewModel::canLoadMoreArticles() const {
@@ -544,7 +553,7 @@ void MainViewModel::toggleExpanded(const QString &node_id) {
 void MainViewModel::addFolder(const QString &parent_id, const QString &title) {
   runAsync([this, parent_id, title]() {
     try {
-      const auto node = app_client_.createFolder(parent_id == QStringLiteral("__root__") ? QString{} : parent_id,
+      const auto node = app_client_.createFolder(parent_id == kRootNodeId ? QString{} : parent_id,
                                                  title);
       QMetaObject::invokeMethod(this, [this, node]() { feed_tree_model_.upsertNode(node); }, Qt::QueuedConnection);
     } catch (const std::exception &error) {
@@ -559,7 +568,7 @@ void MainViewModel::addFeed(const QString &parent_id,
                             const QString &comment) {
   runAsync([this, parent_id, title, feed_url, comment]() {
     try {
-      const auto node = app_client_.createFeed(parent_id == QStringLiteral("__root__") ? QString{} : parent_id,
+      const auto node = app_client_.createFeed(parent_id == kRootNodeId ? QString{} : parent_id,
                                                title,
                                                feed_url,
                                                comment);
@@ -640,7 +649,9 @@ void MainViewModel::refreshFeed(const QString &node_id) {
       refreshUnreadCount();
       QMetaObject::invokeMethod(this,
                                 [this, node_id]() {
-                                  if (selected_node_id_ == QStringLiteral("__root__") || selected_node_id_ == node_id) {
+                                  if (selected_node_id_ == kRootNodeId
+                                      || selected_node_id_ == kQueueNodeId
+                                      || selected_node_id_ == node_id) {
                                     reloadArticlesForCurrentNode();
                                   }
                                 },
@@ -701,8 +712,8 @@ void MainViewModel::markAllArticlesRead(const QString &node_id) {
     return;
   }
   const bool affects_loaded_node = selected_node_id_ == node_id
-                                   || (node_id == QStringLiteral("__root__")
-                                       && selected_node_id_ == QStringLiteral("__root__"));
+                                   || (node_id == kRootNodeId && selected_node_id_ == kRootNodeId)
+                                   || (node_id == kQueueNodeId && selected_node_id_ == kQueueNodeId);
   const auto local_unread = affects_loaded_node ? article_list_model_.unreadCount() : 0;
   if (affects_loaded_node && local_unread > 0) {
     article_list_model_.markAllRead();
@@ -754,13 +765,57 @@ void MainViewModel::markSelectedArticleUnread() {
   }
 
   runAsync([this,
-            node_id = article.value(QStringLiteral("nodeId")).toString(),
+            node_id = selected_node_id_ == kQueueNodeId ? kQueueNodeId : article.value(QStringLiteral("nodeId")).toString(),
             article_id = article.value(QStringLiteral("articleId")).toString()]() {
     try {
       static_cast<void>(app_client_.markArticleUnread(node_id, article_id));
     } catch (const std::exception &error) {
       LOG_WARN << "Mark article unread failed: " << error.what();
       refreshUnreadCount();
+      reloadArticlesForCurrentNode();
+    }
+  });
+}
+
+void MainViewModel::toggleSelectedArticleQueued() {
+  const auto row = article_list_model_.selectedRow();
+  const auto article = article_list_model_.articleAt(row);
+  if (article.isEmpty()) {
+    return;
+  }
+
+  const auto currently_queued = article.value(QStringLiteral("isQueued")).toBool();
+  const auto node_id = selected_node_id_ == kQueueNodeId ? kQueueNodeId : article.value(QStringLiteral("nodeId")).toString();
+  const auto article_id = article.value(QStringLiteral("articleId")).toString();
+
+  if (currently_queued) {
+    if (article_list_model_.markUnqueuedByRow(row)) {
+      emit selectedArticleStateChanged();
+      if (selected_node_id_ == kQueueNodeId) {
+        reloadArticlesForCurrentNode();
+      }
+    }
+
+    runAsync([this, node_id, article_id]() {
+      try {
+        static_cast<void>(app_client_.unqueueArticle(node_id, article_id));
+      } catch (const std::exception &error) {
+        LOG_WARN << "Unqueue article failed: " << error.what();
+        reloadArticlesForCurrentNode();
+      }
+    });
+    return;
+  }
+
+  if (article_list_model_.markQueuedByRow(row)) {
+    emit selectedArticleStateChanged();
+  }
+
+  runAsync([this, node_id, article_id]() {
+    try {
+      static_cast<void>(app_client_.queueArticle(node_id, article_id));
+    } catch (const std::exception &error) {
+      LOG_WARN << "Queue article failed: " << error.what();
       reloadArticlesForCurrentNode();
     }
   });
@@ -984,8 +1039,10 @@ void MainViewModel::importFeeds() {
                                   const auto selected_exists = std::any_of(nodes.cbegin(), nodes.cend(), [this](const auto &node) {
                                     return node.node_id == selected_node_id_;
                                   });
-                                  if (selected_node_id_ != QStringLiteral("__root__") && !selected_exists) {
-                                    selected_node_id_ = QStringLiteral("__root__");
+                                  if (selected_node_id_ != kRootNodeId
+                                      && selected_node_id_ != kQueueNodeId
+                                      && !selected_exists) {
+                                    selected_node_id_ = kRootNodeId;
                                     emit selectedNodeIdChanged();
                                   }
 
@@ -1453,7 +1510,7 @@ bool MainViewModel::markSelectedArticleRead() {
   }
 
   runAsync([this,
-            node_id = article.value(QStringLiteral("nodeId")).toString(),
+            node_id = selected_node_id_ == kQueueNodeId ? kQueueNodeId : article.value(QStringLiteral("nodeId")).toString(),
             article_id = article.value(QStringLiteral("articleId")).toString()]() {
     try {
       static_cast<void>(app_client_.markArticleRead(node_id, article_id));

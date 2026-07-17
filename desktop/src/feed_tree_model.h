@@ -65,6 +65,7 @@ class FeedTreeModel final : public QAbstractListModel {
   void removeDescendants(const QString &node_id);
 
   TreeNodeData root_node_;
+  TreeNodeData queue_node_;
   QHash<QString, TreeNodeData> nodes_;
   QVector<VisibleNode> visible_nodes_;
   QSet<QString> expanded_nodes_;

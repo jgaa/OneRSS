@@ -102,12 +102,12 @@ Frame {
                 }
 
                 Column {
-                    width: previewScroll.availableWidth
+                    width: Math.max(0, previewScroll.availableWidth - 12)
                     spacing: 10
                     padding: 14
 
                     TextArea {
-                        width: parent.width
+                        width: Math.max(0, parent.width - 12)
                         text: root.viewModel ? root.viewModel.previewTitle : ""
                         readOnly: true
                         selectByMouse: true
@@ -120,7 +120,7 @@ Frame {
                     }
 
                     TextArea {
-                        width: parent.width
+                        width: Math.max(0, parent.width - 12)
                         text: root.viewModel ? root.viewModel.previewMeta : ""
                         readOnly: true
                         selectByMouse: true
@@ -132,7 +132,7 @@ Frame {
                     }
 
                     TextArea {
-                        width: parent.width
+                        width: Math.max(0, parent.width - 12)
                         text: root.viewModel ? root.viewModel.previewContent : ""
                         readOnly: true
                         selectByMouse: true

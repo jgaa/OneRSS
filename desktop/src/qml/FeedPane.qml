@@ -162,7 +162,7 @@ Frame {
                     }
 
                     Label {
-                        text: nodeType === 0 ? "📁" : "📰"
+                        text: synthetic && nodeId === "__queue__" ? "🔖" : (nodeType === 0 ? "📁" : "📰")
                         font.pixelSize: root.narrowMode ? root.treeNarrowIconSize : root.treeNodeIconSize
                     }
 
@@ -272,11 +272,13 @@ Frame {
 
                     Action {
                         text: qsTr("Add Folder")
+                        enabled: !synthetic || nodeId === "__root__"
                         onTriggered: root.addFolderRequested(nodeId)
                     }
 
                     Action {
                         text: qsTr("Add Feed")
+                        enabled: !synthetic || nodeId === "__root__"
                         onTriggered: root.addFeedRequested(nodeId)
                     }
 

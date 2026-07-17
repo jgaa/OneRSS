@@ -690,8 +690,10 @@ ApplicationWindow {
                         formatTimestamp: formatArticleTimestamp
                         showOpenButton: true
                         showUnreadButton: true
+                        showQueuedButton: true
                         onOpenInBrowserRequested: mainViewModel.openSelectedArticle()
                         onMarkUnreadRequested: mainViewModel.markSelectedArticleUnread()
+                        onToggleQueuedRequested: mainViewModel.toggleSelectedArticleQueued()
                     }
 
                     ArticlePreviewPane {
@@ -759,12 +761,14 @@ ApplicationWindow {
                     showPreviewButton: true
                     showOpenButton: true
                     showUnreadButton: true
+                    showQueuedButton: true
                     titleText: selectedNodeTitle()
                     formatTimestamp: formatArticleTimestamp
                     onBackRequested: narrowPageIndex = 0
                     onPreviewRequested: narrowPageIndex = 2
                     onOpenInBrowserRequested: mainViewModel.openSelectedArticle()
                     onMarkUnreadRequested: mainViewModel.markSelectedArticleUnread()
+                    onToggleQueuedRequested: mainViewModel.toggleSelectedArticleQueued()
                     onArticlePreviewRequested: function(row) {
                         openNarrowPreview(row)
                     }

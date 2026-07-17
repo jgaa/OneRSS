@@ -292,6 +292,26 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
         if (changed > 0) {
           server_.broadcastArticlesUpdated(user_id_, device_id_, payload.node_id());
         }
+      } else if (request.has_queue_article_request()) {
+        const auto &payload = request.queue_article_request();
+        const auto changed = tree_repository_.queueArticle(user_id_, payload.node_id(), payload.article_id());
+        auto *reply = response.mutable_queue_article_response();
+        reply->set_node_id(payload.node_id());
+        reply->set_changed_count(static_cast<std::uint32_t>(changed));
+        if (changed > 0) {
+          server_.broadcastArticlesUpdated(user_id_, device_id_, payload.node_id());
+          server_.broadcastArticlesUpdated(user_id_, device_id_, "__queue__");
+        }
+      } else if (request.has_unqueue_article_request()) {
+        const auto &payload = request.unqueue_article_request();
+        const auto changed = tree_repository_.unqueueArticle(user_id_, payload.node_id(), payload.article_id());
+        auto *reply = response.mutable_queue_article_response();
+        reply->set_node_id(payload.node_id());
+        reply->set_changed_count(static_cast<std::uint32_t>(changed));
+        if (changed > 0) {
+          server_.broadcastArticlesUpdated(user_id_, device_id_, payload.node_id());
+          server_.broadcastArticlesUpdated(user_id_, device_id_, "__queue__");
+        }
       } else if (request.has_mark_all_articles_read_request()) {
         const auto &payload = request.mark_all_articles_read_request();
         const auto changed = tree_repository_.markAllArticlesRead(user_id_, payload.node_id());
@@ -325,6 +345,8 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
         ui_code = onerss::pb::UI_MESSAGE_CODE_ARTICLES_LOAD_FAILED;
       } else if (request.has_mark_article_read_request()
                  || request.has_mark_article_unread_request()
+                 || request.has_queue_article_request()
+                 || request.has_unqueue_article_request()
                  || request.has_mark_all_articles_read_request()) {
         ui_code = onerss::pb::UI_MESSAGE_CODE_INVALID_REQUEST;
       }

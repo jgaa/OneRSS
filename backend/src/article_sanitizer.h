@@ -14,6 +14,7 @@ struct ArticleSanitizationResult {
   bool accepted = false;
   bool modified = false;
   bool content_capped = false;
+  bool content_control_bytes_normalized = false;
   std::string rejection_reason;
   ArticleRecord article;
 };
@@ -94,6 +95,21 @@ inline std::string capContent(const std::string_view value, bool &content_capped
   return capped;
 }
 
+inline std::string normalizeContentControlBytes(const std::string_view value, bool &modified) {
+  std::string normalized;
+  normalized.reserve(value.size());
+  for (const char ch : value) {
+    const auto byte = static_cast<unsigned char>(ch);
+    if ((byte < 0x20 || byte == 0x7f) && byte != '\n' && byte != '\r' && byte != '\t') {
+      normalized.push_back(' ');
+      modified = true;
+    } else {
+      normalized.push_back(ch);
+    }
+  }
+  return normalized;
+}
+
 }  // namespace detail
 
 inline ArticleSanitizationResult sanitizeArticleForStorage(ArticleRecord article) {
@@ -112,10 +128,8 @@ inline ArticleSanitizationResult sanitizeArticleForStorage(ArticleRecord article
     return result;
   }
 
-  if (detail::hasSuspiciousControlBytes(result.article.content)) {
-    result.rejection_reason = "content contains suspicious control characters";
-    return result;
-  }
+  result.article.content
+    = detail::normalizeContentControlBytes(result.article.content, result.content_control_bytes_normalized);
 
   std::array<std::pair<std::string *, const char *>, 3> internal_fields{{
     {&result.article.article_id, "article_id"},
@@ -130,7 +144,9 @@ inline ArticleSanitizationResult sanitizeArticleForStorage(ArticleRecord article
   }
 
   result.article.content = detail::capContent(result.article.content, result.content_capped);
-  result.modified = result.content_capped || result.article.content.size() != original_content_size;
+  result.modified = result.content_control_bytes_normalized
+                    || result.content_capped
+                    || result.article.content.size() != original_content_size;
   result.accepted = true;
   return result;
 }

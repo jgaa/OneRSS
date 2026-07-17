@@ -69,6 +69,8 @@ QVariant ArticleListModel::data(const QModelIndex &index, const int role) const 
       return article.content;
     case IsReadRole:
       return article.is_read;
+    case IsQueuedRole:
+      return article.is_queued;
     case SelectedRole:
       return index.row() == selected_row_;
     default:
@@ -87,6 +89,7 @@ QHash<int, QByteArray> ArticleListModel::roleNames() const {
     {AuthorRole, "author"},
     {ContentRole, "content"},
     {IsReadRole, "isRead"},
+    {IsQueuedRole, "isQueued"},
     {SelectedRole, "selected"},
   };
 }
@@ -132,6 +135,13 @@ bool ArticleListModel::isReadAt(const int row) const {
   return articles_.at(row).is_read;
 }
 
+bool ArticleListModel::isQueuedAt(const int row) const {
+  if (row < 0 || row >= articles_.size()) {
+    return false;
+  }
+  return articles_.at(row).is_queued;
+}
+
 bool ArticleListModel::markReadByRow(const int row) {
   if (row < 0 || row >= articles_.size() || articles_[row].is_read) {
     return false;
@@ -147,6 +157,24 @@ bool ArticleListModel::markUnreadByRow(const int row) {
   }
   articles_[row].is_read = false;
   emit dataChanged(index(row, 0), index(row, 0), {IsReadRole});
+  return true;
+}
+
+bool ArticleListModel::markQueuedByRow(const int row) {
+  if (row < 0 || row >= articles_.size() || articles_[row].is_queued) {
+    return false;
+  }
+  articles_[row].is_queued = true;
+  emit dataChanged(index(row, 0), index(row, 0), {IsQueuedRole});
+  return true;
+}
+
+bool ArticleListModel::markUnqueuedByRow(const int row) {
+  if (row < 0 || row >= articles_.size() || !articles_[row].is_queued) {
+    return false;
+  }
+  articles_[row].is_queued = false;
+  emit dataChanged(index(row, 0), index(row, 0), {IsQueuedRole});
   return true;
 }
 

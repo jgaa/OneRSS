@@ -22,6 +22,7 @@ class ArticleListModel final : public QAbstractListModel {
     AuthorRole,
     ContentRole,
     IsReadRole,
+    IsQueuedRole,
     SelectedRole
   };
 
@@ -36,8 +37,11 @@ class ArticleListModel final : public QAbstractListModel {
   void appendArticles(const QVector<ArticleData> &articles);
   [[nodiscard]] QVariantMap articleAt(int row) const;
   [[nodiscard]] bool isReadAt(int row) const;
+  [[nodiscard]] bool isQueuedAt(int row) const;
   [[nodiscard]] bool markReadByRow(int row);
   [[nodiscard]] bool markUnreadByRow(int row);
+  [[nodiscard]] bool markQueuedByRow(int row);
+  [[nodiscard]] bool markUnqueuedByRow(int row);
   [[nodiscard]] int unreadCount() const;
   void markAllRead();
   Q_INVOKABLE void selectRow(int row);

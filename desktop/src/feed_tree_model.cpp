@@ -14,6 +14,15 @@ FeedTreeModel::FeedTreeModel(QObject *parent) : QAbstractListModel(parent) {
     .comment = {},
     .synthetic = true,
   };
+  queue_node_ = TreeNodeData{
+    .node_id = QStringLiteral("__queue__"),
+    .parent_id = {},
+    .type = onerss::pb::TreeNode::Type::TYPE_FOLDER,
+    .title = tr("Queue"),
+    .feed_url = {},
+    .comment = {},
+    .synthetic = true,
+  };
   expanded_nodes_.insert(root_node_.node_id);
   rebuildVisible();
 }
@@ -127,11 +136,17 @@ QVariantMap FeedTreeModel::nodeData(const QString &node_id) const {
   if (node_id == root_node_.node_id) {
     return root_node_.toVariantMap();
   }
+  if (node_id == queue_node_.node_id) {
+    return queue_node_.toVariantMap();
+  }
   const auto it = nodes_.find(node_id);
   return it != nodes_.end() ? it->toVariantMap() : QVariantMap{};
 }
 
 bool FeedTreeModel::canReparent(const QString &node_id, const QString &parent_id) const {
+  if (node_id == queue_node_.node_id || parent_id == queue_node_.node_id) {
+    return false;
+  }
   const auto node_it = nodes_.find(node_id);
   if (node_it == nodes_.end()) {
     return false;
@@ -161,6 +176,9 @@ QString FeedTreeModel::titleForNode(const QString &node_id) const {
   if (node_id == root_node_.node_id) {
     return root_node_.title;
   }
+  if (node_id == queue_node_.node_id) {
+    return queue_node_.title;
+  }
   const auto it = nodes_.find(node_id);
   return it != nodes_.end() ? it->title : QString{};
 }
@@ -179,6 +197,12 @@ void FeedTreeModel::rebuildVisible() {
   } else {
     appendFiltered(QString{}, 1);
   }
+  visible_nodes_.push_back(VisibleNode{
+    .node = queue_node_,
+    .depth = 0,
+    .expanded = false,
+    .has_children = false,
+  });
   endResetModel();
 }
 

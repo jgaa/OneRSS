@@ -31,6 +31,7 @@ class MainViewModel final : public QObject {
   Q_PROPERTY(QString previewContent READ previewContent NOTIFY previewChanged)
   Q_PROPERTY(bool hasPreview READ hasPreview NOTIFY previewChanged)
   Q_PROPERTY(bool selectedArticleIsRead READ selectedArticleIsRead NOTIFY selectedArticleStateChanged)
+  Q_PROPERTY(bool selectedArticleIsQueued READ selectedArticleIsQueued NOTIFY selectedArticleStateChanged)
   Q_PROPERTY(bool canLoadMoreArticles READ canLoadMoreArticles NOTIFY articlePagingChanged)
   Q_PROPERTY(bool loadingMoreArticles READ loadingMoreArticles NOTIFY articlePagingChanged)
   Q_PROPERTY(QString articleSearchQuery READ articleSearchQuery NOTIFY articleSearchChanged)
@@ -60,6 +61,7 @@ class MainViewModel final : public QObject {
   [[nodiscard]] QString previewContent() const;
   [[nodiscard]] bool hasPreview() const;
   [[nodiscard]] bool selectedArticleIsRead() const;
+  [[nodiscard]] bool selectedArticleIsQueued() const;
   [[nodiscard]] bool canLoadMoreArticles() const;
   [[nodiscard]] bool loadingMoreArticles() const;
   [[nodiscard]] QString articleSearchQuery() const;
@@ -92,6 +94,7 @@ class MainViewModel final : public QObject {
   Q_INVOKABLE void markAllArticlesRead(const QString &node_id);
   Q_INVOKABLE void updateUserRefreshIntervalHours(int hours);
   Q_INVOKABLE void markSelectedArticleUnread();
+  Q_INVOKABLE void toggleSelectedArticleQueued();
   Q_INVOKABLE void openSelectedArticle();
   Q_INVOKABLE void clearStatusBar();
   Q_INVOKABLE void requestFeedTitleLookup(const QString &feed_url);

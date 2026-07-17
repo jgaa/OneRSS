@@ -232,6 +232,38 @@ int AppClient::markArticleUnread(const QString &node_id, const QString &article_
   return static_cast<int>(response.markArticlesReadResponse().changedCount());
 }
 
+int AppClient::queueArticle(const QString &node_id, const QString &article_id) {
+  onerss::pb::IncomingEnvelope request_envelope;
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::QueueArticleRequest payload;
+  payload.setNodeId(node_id);
+  payload.setArticleId(article_id);
+  request_envelope.setQueueArticleRequest(std::move(payload));
+  const auto response = request(request_envelope);
+  emitUserNotification(response);
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
+  }
+  return static_cast<int>(response.queueArticleResponse().changedCount());
+}
+
+int AppClient::unqueueArticle(const QString &node_id, const QString &article_id) {
+  onerss::pb::IncomingEnvelope request_envelope;
+  request_envelope.setRequestId(QString::fromStdString(newRequestId()));
+  onerss::pb::UnqueueArticleRequest payload;
+  payload.setNodeId(node_id);
+  payload.setArticleId(article_id);
+  request_envelope.setUnqueueArticleRequest(std::move(payload));
+  const auto response = request(request_envelope);
+  emitUserNotification(response);
+  if (response.hasError()) {
+    throw BackendCommandError{response.error().message().toStdString(),
+                              toUiStatusMessage(response.error().userNotification())};
+  }
+  return static_cast<int>(response.queueArticleResponse().changedCount());
+}
+
 int AppClient::markAllArticlesRead(const QString &node_id) {
   onerss::pb::IncomingEnvelope request_envelope;
   request_envelope.setRequestId(QString::fromStdString(newRequestId()));
