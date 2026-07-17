@@ -24,6 +24,9 @@ ApplicationWindow {
 
     property string contextNodeId: "__root__"
     readonly property bool narrowLayout: width < 860
+    readonly property bool androidMode: Qt.platform.os === "android"
+    readonly property int splitHandleThickness: androidMode ? 28 : 10
+    readonly property int splitHandleLineThickness: androidMode ? 3 : 1
     property int narrowPageIndex: 0
     property color statusColor: {
         switch (mainViewModel.statusBarSeverity) {
@@ -595,6 +598,23 @@ ApplicationWindow {
             SplitView {
                 anchors.fill: parent
                 visible: !narrowLayout
+                handle: Rectangle {
+                    implicitWidth: window.splitHandleThickness
+                    implicitHeight: window.splitHandleThickness
+                    color: SplitHandle.pressed ? "#c7b39b" : (SplitHandle.hovered ? "#d8c3a5" : "#e9e0d3")
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: SplitHandle.orientation === Qt.Horizontal
+                               ? parent.width
+                               : window.splitHandleLineThickness
+                        height: SplitHandle.orientation === Qt.Horizontal
+                                ? window.splitHandleLineThickness
+                                : parent.height
+                        radius: window.splitHandleLineThickness / 2
+                        color: SplitHandle.pressed ? "#7a5c3e" : "#8d7962"
+                    }
+                }
 
                 FeedPane {
                     SplitView.minimumWidth: 240
