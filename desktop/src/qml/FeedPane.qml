@@ -8,7 +8,15 @@ Frame {
     required property var viewModel
     property bool narrowMode: false
     property string headerText: qsTr("Feeds")
+    property int androidFeedTreeScalePercent: 100
     readonly property bool androidMode: Qt.platform.os === "android"
+    readonly property real treeScale: androidMode ? Math.max(1.0, androidFeedTreeScalePercent / 100.0) : 1.0
+    readonly property int treeChevronSize: Math.round(18 * treeScale)
+    readonly property int treeNodeIconSize: Math.round(16 * treeScale)
+    readonly property int treeNodeTextSize: Math.round(14 * treeScale)
+    readonly property int treeNarrowIconSize: Math.round(18 * treeScale)
+    readonly property int treeNarrowTextSize: Math.round(15 * treeScale)
+    readonly property int treeExpandButtonSize: Math.round(32 * treeScale)
     property string draggedNodeId: ""
     property string dropTargetNodeId: ""
     property bool hasDropTarget: false
@@ -132,7 +140,7 @@ Frame {
                                                         && root.dropTargetNodeId === (synthetic ? "" : nodeId)
 
                 width: ListView.view.width
-                height: root.narrowMode ? 40 : 28
+                height: Math.round((root.narrowMode ? 40 : 28) * root.treeScale)
                 color: validDropTarget
                        ? "#b8d7a8"
                        : (root.viewModel && root.viewModel.selectedNodeId === nodeId
@@ -148,20 +156,20 @@ Frame {
                     MaterialIcon {
                         visible: !root.narrowMode
                         width: 14
-                        iconSize: 18
+                        iconSize: root.treeChevronSize
                         color: "#2a2725"
                         text: hasChildren ? (expanded ? "expand_more" : "chevron_right") : ""
                     }
 
                     Label {
                         text: nodeType === 0 ? "📁" : "📰"
-                        font.pixelSize: root.narrowMode ? 18 : 16
+                        font.pixelSize: root.narrowMode ? root.treeNarrowIconSize : root.treeNodeIconSize
                     }
 
                     Label {
                         Layout.fillWidth: true
                         text: title
-                        font.pixelSize: root.narrowMode ? 15 : 14
+                        font.pixelSize: root.narrowMode ? root.treeNarrowTextSize : root.treeNodeTextSize
                         font.bold: synthetic
                         color: root.viewModel && root.viewModel.selectedNodeId === nodeId ? "#1f1a17" : "#2a2725"
                         elide: Text.ElideRight
@@ -170,11 +178,11 @@ Frame {
                     ToolButton {
                         id: expandButton
                         visible: root.narrowMode && hasChildren
-                        implicitWidth: 32
-                        implicitHeight: 32
+                        implicitWidth: root.treeExpandButtonSize
+                        implicitHeight: root.treeExpandButtonSize
                         contentItem: MaterialIcon {
                             text: expanded ? "expand_more" : "chevron_right"
-                            iconSize: 22
+                            iconSize: Math.round(22 * root.treeScale)
                             color: "#2a2725"
                         }
                         onClicked: root.nodeExpansionRequested(nodeId)

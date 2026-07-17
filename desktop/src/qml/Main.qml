@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtCore
 import OneRSS
 
 ApplicationWindow {
@@ -25,6 +26,7 @@ ApplicationWindow {
     property string contextNodeId: "__root__"
     readonly property bool narrowLayout: width < 860
     readonly property bool androidMode: Qt.platform.os === "android"
+    readonly property int androidFeedTreeScalePercent: androidMode ? uiSettings.androidFeedTreeScalePercent : 100
     readonly property int splitHandleThickness: androidMode ? 28 : 10
     readonly property int splitHandleLineThickness: androidMode ? 3 : 1
     property int narrowPageIndex: 0
@@ -212,7 +214,19 @@ ApplicationWindow {
         }
     }
 
-    SettingsDialog { id: settingsDialog; parent: Overlay.overlay }
+    Settings {
+        id: uiSettings
+        property int androidFeedTreeScalePercent: 112
+    }
+
+    SettingsDialog {
+        id: settingsDialog
+        parent: Overlay.overlay
+        initialAndroidFeedTreeScalePercent: uiSettings.androidFeedTreeScalePercent
+        onAndroidFeedTreeScalePercentCommitted: function(value) {
+            uiSettings.androidFeedTreeScalePercent = value
+        }
+    }
     AboutDialog { id: aboutDialog; parent: Overlay.overlay }
     SignupDialog { id: signupDialog; parent: Overlay.overlay }
 
@@ -616,6 +630,7 @@ ApplicationWindow {
                     SplitView.minimumWidth: 240
                     SplitView.preferredWidth: 320
                     viewModel: mainViewModel
+                    androidFeedTreeScalePercent: window.androidFeedTreeScalePercent
                     onNodeActivated: function(nodeId, nodeType, synthetic, hasChildren) {
                         activateNode(nodeId, hasChildren)
                     }
@@ -694,6 +709,7 @@ ApplicationWindow {
                 FeedPane {
                     viewModel: mainViewModel
                     narrowMode: true
+                    androidFeedTreeScalePercent: window.androidFeedTreeScalePercent
                     onNodeActivated: function(nodeId, nodeType, synthetic, hasChildren) {
                         if (synthetic || nodeType === 1) {
                             openNarrowArticles(nodeId)

@@ -5,6 +5,8 @@ import OneRSS
 
 Dialog {
     id: root
+    property int initialAndroidFeedTreeScalePercent: 112
+    signal androidFeedTreeScalePercentCommitted(int value)
     anchors.centerIn: parent
     modal: true
     focus: true
@@ -33,6 +35,10 @@ Dialog {
 
             GeneralSettings {
                 id: generalSettings
+                androidFeedTreeScalePercent: root.initialAndroidFeedTreeScalePercent
+                onAndroidFeedTreeScalePercentCommitted: function(value) {
+                    root.androidFeedTreeScalePercentCommitted(value)
+                }
             }
 
             LoggingSettings {

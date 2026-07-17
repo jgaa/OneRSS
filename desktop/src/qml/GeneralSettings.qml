@@ -5,13 +5,19 @@ import QtQuick.Layouts
 ScrollView {
     id: root
     clip: true
+    property int androidFeedTreeScalePercent: 112
+    readonly property bool androidMode: Qt.platform.os === "android"
+
+    signal androidFeedTreeScalePercentCommitted(int value)
 
     function commit() {
         mainViewModel.updateUserRefreshIntervalHours(refreshHours.value)
+        root.androidFeedTreeScalePercentCommitted(androidTreeSize.value)
     }
 
     function reload() {
         refreshHours.value = Math.max(1, mainViewModel.defaultRefreshIntervalHours)
+        androidTreeSize.value = androidFeedTreeScalePercent
     }
 
     function revert() {
@@ -47,6 +53,36 @@ ScrollView {
             wrapMode: Text.WordWrap
             opacity: 0.7
             text: qsTr("This server-stored setting is shared by all paired devices for the same account.")
+        }
+
+        Label {
+            visible: root.androidMode
+            text: qsTr("Android Feed Tree Size")
+        }
+        RowLayout {
+            visible: root.androidMode
+            Layout.fillWidth: true
+
+            Slider {
+                id: androidTreeSize
+                Layout.fillWidth: true
+                from: 100
+                to: 140
+                stepSize: 5
+            }
+
+            Label {
+                text: qsTr("%1%").arg(Math.round(androidTreeSize.value))
+            }
+        }
+
+        Label {
+            visible: root.androidMode
+            Layout.columnSpan: formLayout.columns
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            opacity: 0.7
+            text: qsTr("This device-only setting changes feed tree row, icon, and text size on Android.")
         }
 
         Item { Layout.fillHeight: true }
