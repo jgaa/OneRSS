@@ -269,6 +269,23 @@ void FeedRefreshScheduler::executeFetch(const std::string &node_id, const std::u
               << " url=" << feed.feed_url;
     const auto articles = feed_fetcher_.fetchArticles(feed);
     const auto new_entries = tree_repository_.upsertArticles(feed.user_id, feed.node_id, articles);
+    const auto user_settings = user_store_.getUserSettings(feed.user_id);
+    const auto archive_mode = feed.archive_mode == onerss::pb::ARCHIVE_MODE_USE_DEFAULT
+                                ? user_settings.default_archive_mode
+                                : feed.archive_mode;
+    const auto archive_limit = feed.archive_mode == onerss::pb::ARCHIVE_MODE_USE_DEFAULT
+                                 ? user_settings.default_archive_limit
+                                 : feed.archive_limit;
+    std::vector<std::string> current_guids;
+    current_guids.reserve(articles.size());
+    for (const auto &article : articles) {
+      current_guids.push_back(article.guid);
+    }
+    tree_repository_.applyArchivePolicy(feed.user_id,
+                                        feed.node_id,
+                                        archive_mode,
+                                        archive_limit,
+                                        current_guids);
     if (on_articles_updated_) {
       on_articles_updated_(feed.user_id, feed.node_id);
     }

@@ -26,6 +26,8 @@ struct ArticlePage {
 
 struct UserSettingsData {
   int default_refresh_interval_hours = 12;
+  int default_archive_mode = 1;
+  int default_archive_limit = 1;
 };
 
 struct AppHelloData {

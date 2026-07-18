@@ -25,6 +25,7 @@ Dialog {
             Layout.fillWidth: true
 
             TabButton { text: qsTr("General") }
+            TabButton { text: qsTr("Archive") }
             TabButton { text: qsTr("Browsers") }
             TabButton { text: qsTr("Logging") }
         }
@@ -42,6 +43,10 @@ Dialog {
                 }
             }
 
+            ArchiveSettings {
+                id: archiveSettings
+            }
+
             BrowserSettings {
                 id: browserSettings
             }
@@ -54,17 +59,22 @@ Dialog {
 
     onOpened: {
         generalSettings.reload()
+        archiveSettings.reload(mainViewModel.defaultArchiveMode, mainViewModel.defaultArchiveLimit)
         browserSettings.reload()
         loggingSettings.reload()
     }
     onAccepted: {
         generalSettings.commit()
+        mainViewModel.updateUserSettings(generalSettings.refreshIntervalHours,
+                                         archiveSettings.selectedMode,
+                                         archiveSettings.retentionLimit)
         browserSettings.commit()
         loggingSettings.commit()
         close()
     }
     onRejected: {
         generalSettings.revert()
+        archiveSettings.reload(mainViewModel.defaultArchiveMode, mainViewModel.defaultArchiveLimit)
         browserSettings.revert()
         loggingSettings.revert()
         close()

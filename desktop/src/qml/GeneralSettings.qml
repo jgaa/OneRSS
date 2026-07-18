@@ -6,12 +6,12 @@ ScrollView {
     id: root
     clip: true
     property int androidFeedTreeScalePercent: 112
+    readonly property int refreshIntervalHours: refreshHours.value
     readonly property bool androidMode: Qt.platform.os === "android"
 
     signal androidFeedTreeScalePercentCommitted(int value)
 
     function commit() {
-        mainViewModel.updateUserRefreshIntervalHours(refreshHours.value)
         root.androidFeedTreeScalePercentCommitted(androidTreeSize.value)
     }
 

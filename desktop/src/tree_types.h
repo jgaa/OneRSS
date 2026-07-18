@@ -17,6 +17,8 @@ struct TreeNodeData {
   QString comment;
   bool use_default_refresh_interval = true;
   int refresh_interval_hours = 12;
+  int archive_mode = 0;
+  int archive_limit = 0;
   bool synthetic = false;
 
   [[nodiscard]] QVariantMap toVariantMap() const {
@@ -29,6 +31,8 @@ struct TreeNodeData {
     map.insert(QStringLiteral("comment"), comment);
     map.insert(QStringLiteral("useDefaultRefreshInterval"), use_default_refresh_interval);
     map.insert(QStringLiteral("refreshIntervalHours"), refresh_interval_hours);
+    map.insert(QStringLiteral("archiveMode"), static_cast<int>(archive_mode));
+    map.insert(QStringLiteral("archiveLimit"), archive_limit);
     map.insert(QStringLiteral("synthetic"), synthetic);
     return map;
   }

@@ -28,6 +28,11 @@ class SqliteTreeRepository final : public TreeRepository {
   [[nodiscard]] std::size_t upsertArticles(const std::string &user_id,
                                            const std::string &node_id,
                                            const std::vector<ArticleRecord> &articles) override;
+  void applyArchivePolicy(const std::string &user_id,
+                          const std::string &node_id,
+                          onerss::pb::ArchiveMode archive_mode,
+                          std::uint32_t archive_limit,
+                          const std::vector<std::string> &current_guids) override;
   [[nodiscard]] std::size_t unreadCount(const std::string &user_id) override;
   [[nodiscard]] std::size_t markArticleRead(const std::string &user_id,
                                             const std::string &node_id,

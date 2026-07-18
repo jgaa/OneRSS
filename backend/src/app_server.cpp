@@ -27,6 +27,8 @@ constexpr std::size_t kDefaultFeedPageSize = 200;
 onerss::pb::UserSettings toProto(const UserSettingsRecord &record) {
   onerss::pb::UserSettings settings;
   settings.set_default_refresh_interval_hours(record.default_refresh_interval_hours);
+  settings.set_default_archive_mode(record.default_archive_mode);
+  settings.set_default_archive_limit(record.default_archive_limit);
   return settings;
 }
 
@@ -34,6 +36,13 @@ UserSettingsRecord fromProto(const onerss::pb::UserSettings &settings) {
   return UserSettingsRecord{
     .default_refresh_interval_hours
     = settings.default_refresh_interval_hours() == 0 ? 12 : settings.default_refresh_interval_hours(),
+    .default_archive_mode = static_cast<onerss::pb::ArchiveMode>(std::clamp(settings.default_archive_mode()
+                                                                                == onerss::pb::ARCHIVE_MODE_USE_DEFAULT
+                                                                              ? static_cast<int>(onerss::pb::ARCHIVE_MODE_KEEP_ALL)
+                                                                              : static_cast<int>(settings.default_archive_mode()),
+                                                                            static_cast<int>(onerss::pb::ARCHIVE_MODE_KEEP_ALL),
+                                                                            static_cast<int>(onerss::pb::ARCHIVE_MODE_DISABLED))),
+    .default_archive_limit = std::max(1u, settings.default_archive_limit()),
   };
 }
 
@@ -234,6 +243,23 @@ class AppSession final : public std::enable_shared_from_this<AppSession> {
                   << " url=" << feed.feed_url;
         const auto articles = feed_fetcher_.fetchArticles(feed);
         const auto new_entries = tree_repository_.upsertArticles(user_id_, feed.node_id, articles);
+        const auto user_settings = user_store_.getUserSettings(user_id_);
+        const auto archive_mode = feed.archive_mode == onerss::pb::ARCHIVE_MODE_USE_DEFAULT
+                                    ? user_settings.default_archive_mode
+                                    : feed.archive_mode;
+        const auto archive_limit = feed.archive_mode == onerss::pb::ARCHIVE_MODE_USE_DEFAULT
+                                     ? user_settings.default_archive_limit
+                                     : feed.archive_limit;
+        std::vector<std::string> current_guids;
+        current_guids.reserve(articles.size());
+        for (const auto &article : articles) {
+          current_guids.push_back(article.guid);
+        }
+        tree_repository_.applyArchivePolicy(user_id_,
+                                            feed.node_id,
+                                            archive_mode,
+                                            archive_limit,
+                                            current_guids);
         const auto duration_ms
           = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started_at).count();
         LOG_TRACE << "Fetch finished node=" << feed.node_id

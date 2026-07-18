@@ -22,6 +22,8 @@ struct TreeNodeRecord {
   std::string comment;
   bool use_default_refresh_interval = true;
   std::uint32_t refresh_interval_hours = 12;
+  onerss::pb::ArchiveMode archive_mode = onerss::pb::ARCHIVE_MODE_USE_DEFAULT;
+  std::uint32_t archive_limit = 0;
 };
 
 class TreeRepository {
@@ -47,6 +49,11 @@ class TreeRepository {
   [[nodiscard]] virtual std::size_t upsertArticles(const std::string &user_id,
                                                    const std::string &node_id,
                                                    const std::vector<ArticleRecord> &articles) = 0;
+  virtual void applyArchivePolicy(const std::string &user_id,
+                                  const std::string &node_id,
+                                  onerss::pb::ArchiveMode archive_mode,
+                                  std::uint32_t archive_limit,
+                                  const std::vector<std::string> &current_guids) = 0;
   [[nodiscard]] virtual std::size_t unreadCount(const std::string &user_id) = 0;
   [[nodiscard]] virtual std::size_t markArticleRead(const std::string &user_id,
                                                     const std::string &node_id,

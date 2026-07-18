@@ -2,6 +2,7 @@
 
 #include "sqlite.h"
 #include "ssl_util.h"
+#include "onerss.pb.h"
 
 #include <cstdint>
 #include <mutex>
@@ -26,6 +27,8 @@ struct DeviceIdentity {
 
 struct UserSettingsRecord {
   std::uint32_t default_refresh_interval_hours = 12;
+  onerss::pb::ArchiveMode default_archive_mode = onerss::pb::ARCHIVE_MODE_KEEP_ALL;
+  std::uint32_t default_archive_limit = 0;
 };
 
 class UserStore final {

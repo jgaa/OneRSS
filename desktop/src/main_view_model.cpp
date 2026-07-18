@@ -249,8 +249,12 @@ MainViewModel::MainViewModel(QObject *parent) : QObject(parent) {
   app_client_.onUserSettingsUpdated = [this](const UserSettingsData &settings, const QString &) {
     QMetaObject::invokeMethod(this,
                               [this, settings]() {
-                                if (default_refresh_interval_hours_ != settings.default_refresh_interval_hours) {
+                                if (default_refresh_interval_hours_ != settings.default_refresh_interval_hours
+                                    || default_archive_mode_ != settings.default_archive_mode
+                                    || default_archive_limit_ != settings.default_archive_limit) {
                                   default_refresh_interval_hours_ = settings.default_refresh_interval_hours;
+                                  default_archive_mode_ = settings.default_archive_mode;
+                                  default_archive_limit_ = settings.default_archive_limit;
                                   emit userSettingsChanged();
                                 }
                               },
@@ -378,6 +382,14 @@ int MainViewModel::defaultRefreshIntervalHours() const {
   return default_refresh_interval_hours_;
 }
 
+int MainViewModel::defaultArchiveMode() const {
+  return static_cast<int>(default_archive_mode_);
+}
+
+int MainViewModel::defaultArchiveLimit() const {
+  return default_archive_limit_;
+}
+
 int MainViewModel::unreadCount() const {
   return unread_count_;
 }
@@ -490,8 +502,12 @@ void MainViewModel::reconnect() {
                                 [this, hello, settings, unread_count, nodes]() {
                                   reconnect_in_progress_ = false;
                                   waiting_for_network_change_ = false;
-                                  if (default_refresh_interval_hours_ != settings.default_refresh_interval_hours) {
+                                  if (default_refresh_interval_hours_ != settings.default_refresh_interval_hours
+                                      || default_archive_mode_ != settings.default_archive_mode
+                                      || default_archive_limit_ != settings.default_archive_limit) {
                                     default_refresh_interval_hours_ = settings.default_refresh_interval_hours;
+                                    default_archive_mode_ = settings.default_archive_mode;
+                                    default_archive_limit_ = settings.default_archive_limit;
                                     emit userSettingsChanged();
                                   }
                                   if (unread_count_ != unread_count) {
@@ -597,12 +613,16 @@ void MainViewModel::renameNode(const QString &node_id, const QString &title) {
   update.comment = node.value(QStringLiteral("comment")).toString();
   update.use_default_refresh_interval = node.value(QStringLiteral("useDefaultRefreshInterval")).toBool();
   update.refresh_interval_hours = node.value(QStringLiteral("refreshIntervalHours")).toInt();
+  update.archive_mode = node.value(QStringLiteral("archiveMode")).toInt();
+  update.archive_limit = node.value(QStringLiteral("archiveLimit")).toInt();
   configureFeed(update.node_id,
                 update.title,
                 update.feed_url,
                 update.comment,
                 update.use_default_refresh_interval,
-                update.refresh_interval_hours);
+                update.refresh_interval_hours,
+                static_cast<int>(update.archive_mode),
+                update.archive_limit);
 }
 
 void MainViewModel::configureFeed(const QString &node_id,
@@ -610,7 +630,9 @@ void MainViewModel::configureFeed(const QString &node_id,
                                   const QString &feed_url,
                                   const QString &comment,
                                   const bool use_default_refresh_interval,
-                                  const int refresh_interval_hours) {
+                                  const int refresh_interval_hours,
+                                  const int archive_mode,
+                                  const int archive_limit) {
   auto node = feed_tree_model_.nodeData(node_id);
   if (node.isEmpty()) {
     return;
@@ -624,6 +646,8 @@ void MainViewModel::configureFeed(const QString &node_id,
   update.comment = comment;
   update.use_default_refresh_interval = use_default_refresh_interval;
   update.refresh_interval_hours = std::max(1, refresh_interval_hours);
+  update.archive_mode = std::clamp(archive_mode, 0, 4);
+  update.archive_limit = std::max(0, archive_limit);
 
   runAsync([this, update]() {
     try {
@@ -681,6 +705,8 @@ void MainViewModel::moveNode(const QString &node_id, const QString &parent_id) {
   update.comment = node.value(QStringLiteral("comment")).toString();
   update.use_default_refresh_interval = node.value(QStringLiteral("useDefaultRefreshInterval")).toBool();
   update.refresh_interval_hours = node.value(QStringLiteral("refreshIntervalHours")).toInt();
+  update.archive_mode = node.value(QStringLiteral("archiveMode")).toInt();
+  update.archive_limit = node.value(QStringLiteral("archiveLimit")).toInt();
 
   if (!parent_id.isEmpty()) {
     feed_tree_model_.expandNode(parent_id);
@@ -700,6 +726,7 @@ void MainViewModel::selectNode(const QString &node_id) {
   if (selected_node_id_ == node_id) {
     return;
   }
+  article_list_model_.selectRow(-1);
   selected_node_id_ = node_id;
   emit selectedNodeIdChanged();
   reloadArticlesForCurrentNode();
@@ -740,6 +767,8 @@ void MainViewModel::updateUserRefreshIntervalHours(const int hours) {
     try {
       const auto settings = app_client_.updateUserSettings(UserSettingsData{
         .default_refresh_interval_hours = std::max(1, hours),
+        .default_archive_mode = default_archive_mode_,
+        .default_archive_limit = default_archive_limit_,
       });
       QMetaObject::invokeMethod(this,
                                 [this, settings]() {
@@ -751,6 +780,50 @@ void MainViewModel::updateUserRefreshIntervalHours(const int hours) {
                                 Qt::QueuedConnection);
     } catch (const std::exception &error) {
       LOG_WARN << "Update user settings failed: " << error.what();
+    }
+  });
+}
+
+void MainViewModel::updateUserSettings(const int refresh_hours, const int archive_mode, const int archive_limit) {
+  runAsync([this, refresh_hours, archive_mode, archive_limit]() {
+    try {
+      const auto settings = app_client_.updateUserSettings(UserSettingsData{
+        .default_refresh_interval_hours = std::max(1, refresh_hours),
+        .default_archive_mode = std::clamp(archive_mode, 1, 4),
+        .default_archive_limit = std::max(1, archive_limit),
+      });
+      QMetaObject::invokeMethod(this,
+                                [this, settings]() {
+                                  default_refresh_interval_hours_ = settings.default_refresh_interval_hours;
+                                  default_archive_mode_ = settings.default_archive_mode;
+                                  default_archive_limit_ = settings.default_archive_limit;
+                                  emit userSettingsChanged();
+                                },
+                                Qt::QueuedConnection);
+    } catch (const std::exception &error) {
+      LOG_WARN << "Update user settings failed: " << error.what();
+    }
+  });
+}
+
+void MainViewModel::updateUserArchiveSettings(const int mode, const int limit) {
+  runAsync([this, mode, limit]() {
+    try {
+      const auto settings = app_client_.updateUserSettings(UserSettingsData{
+        .default_refresh_interval_hours = default_refresh_interval_hours_,
+        .default_archive_mode = std::clamp(mode, 1, 4),
+        .default_archive_limit = std::max(1, limit),
+      });
+      QMetaObject::invokeMethod(this,
+                                [this, settings]() {
+                                  default_refresh_interval_hours_ = settings.default_refresh_interval_hours;
+                                  default_archive_mode_ = settings.default_archive_mode;
+                                  default_archive_limit_ = settings.default_archive_limit;
+                                  emit userSettingsChanged();
+                                },
+                                Qt::QueuedConnection);
+    } catch (const std::exception &error) {
+      LOG_WARN << "Update archive settings failed: " << error.what();
     }
   });
 }

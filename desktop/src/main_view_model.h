@@ -26,6 +26,8 @@ class MainViewModel final : public QObject {
   Q_PROPERTY(bool hasStatusBarDetail READ hasStatusBarDetail NOTIFY statusBarChanged)
   Q_PROPERTY(QString selectedNodeId READ selectedNodeId NOTIFY selectedNodeIdChanged)
   Q_PROPERTY(int defaultRefreshIntervalHours READ defaultRefreshIntervalHours NOTIFY userSettingsChanged)
+  Q_PROPERTY(int defaultArchiveMode READ defaultArchiveMode NOTIFY userSettingsChanged)
+  Q_PROPERTY(int defaultArchiveLimit READ defaultArchiveLimit NOTIFY userSettingsChanged)
   Q_PROPERTY(int unreadCount READ unreadCount NOTIFY unreadCountChanged)
   Q_PROPERTY(QString previewTitle READ previewTitle NOTIFY previewChanged)
   Q_PROPERTY(QString previewMeta READ previewMeta NOTIFY previewChanged)
@@ -57,6 +59,8 @@ class MainViewModel final : public QObject {
   [[nodiscard]] bool hasStatusBarDetail() const;
   [[nodiscard]] QString selectedNodeId() const;
   [[nodiscard]] int defaultRefreshIntervalHours() const;
+  [[nodiscard]] int defaultArchiveMode() const;
+  [[nodiscard]] int defaultArchiveLimit() const;
   [[nodiscard]] int unreadCount() const;
   [[nodiscard]] QString previewTitle() const;
   [[nodiscard]] QString previewMeta() const;
@@ -88,7 +92,9 @@ class MainViewModel final : public QObject {
                                  const QString &feed_url,
                                  const QString &comment,
                                  bool use_default_refresh_interval,
-                                 int refresh_interval_hours);
+                                 int refresh_interval_hours,
+                                 int archive_mode,
+                                 int archive_limit);
   Q_INVOKABLE void deleteNode(const QString &node_id);
   Q_INVOKABLE void refreshFeed(const QString &node_id);
   Q_INVOKABLE void moveNode(const QString &node_id, const QString &parent_id);
@@ -96,6 +102,8 @@ class MainViewModel final : public QObject {
   Q_INVOKABLE void selectArticleRow(int row);
   Q_INVOKABLE void markAllArticlesRead(const QString &node_id);
   Q_INVOKABLE void updateUserRefreshIntervalHours(int hours);
+  Q_INVOKABLE void updateUserSettings(int refresh_hours, int archive_mode, int archive_limit);
+  Q_INVOKABLE void updateUserArchiveSettings(int mode, int limit);
   Q_INVOKABLE void markSelectedArticleUnread();
   Q_INVOKABLE void toggleSelectedArticleQueued();
   Q_INVOKABLE void openSelectedArticle(const QString &profile_id = QString{});
@@ -163,6 +171,8 @@ class MainViewModel final : public QObject {
   UiStatusMessage status_bar_message_;
   QString selected_node_id_ = QStringLiteral("__root__");
   int default_refresh_interval_hours_ = 12;
+  int default_archive_mode_ = 1;
+  int default_archive_limit_ = 1;
   int unread_count_ = 0;
   QString preview_title_;
   QString preview_meta_;

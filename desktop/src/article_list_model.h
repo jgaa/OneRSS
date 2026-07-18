@@ -50,6 +50,7 @@ class ArticleListModel final : public QAbstractListModel {
   void selectedRowChanged();
 
  private:
+  void mergeArticles(const QVector<ArticleData> &articles, bool remove_missing);
   void emitRowChanged(int row);
 
   QVector<ArticleData> articles_;

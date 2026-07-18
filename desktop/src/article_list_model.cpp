@@ -1,6 +1,7 @@
 #include "article_list_model.h"
 
 #include <QDateTime>
+#include <QSet>
 
 #include <algorithm>
 
@@ -99,26 +100,117 @@ int ArticleListModel::selectedRow() const {
 }
 
 void ArticleListModel::setArticles(const QVector<ArticleData> &articles) {
-  beginResetModel();
-  articles_ = articles;
-  sortNewestFirst(articles_);
-  selected_row_ = articles_.isEmpty() ? -1 : 0;
-  endResetModel();
-  emit selectedRowChanged();
+  mergeArticles(articles, true);
 }
 
 void ArticleListModel::appendArticles(const QVector<ArticleData> &articles) {
-  if (articles.isEmpty()) {
-    return;
+  mergeArticles(articles, false);
+}
+
+void ArticleListModel::mergeArticles(const QVector<ArticleData> &articles, const bool remove_missing) {
+  const auto previous_selected_row = selected_row_;
+  const auto selected_article_id = previous_selected_row >= 0 && previous_selected_row < articles_.size()
+                                     ? articles_.at(previous_selected_row).article_id
+                                     : QString{};
+
+  QVector<ArticleData> target;
+  if (remove_missing) {
+    target = articles;
+  } else {
+    target = articles_;
+    for (const auto &article : articles) {
+      const auto existing = std::find_if(target.begin(), target.end(), [&article](const auto &current) {
+        return current.article_id == article.article_id;
+      });
+      if (existing == target.end()) {
+        target.push_back(article);
+      } else {
+        *existing = article;
+      }
+    }
+  }
+  sortNewestFirst(target);
+
+  QSet<QString> target_ids;
+  for (const auto &article : target) {
+    target_ids.insert(article.article_id);
   }
 
-  const auto start = articles_.size();
-  const auto end = start + articles.size() - 1;
-  beginInsertRows(QModelIndex{}, start, end);
-  for (const auto &article : articles) {
-    articles_.push_back(article);
+  // Keep the article being read even when a refresh no longer returns it.
+  if (remove_missing && !selected_article_id.isEmpty() && !target_ids.contains(selected_article_id)) {
+    target.push_back(articles_.at(previous_selected_row));
+    target_ids.insert(selected_article_id);
+    sortNewestFirst(target);
   }
-  endInsertRows();
+
+  if (remove_missing) {
+    for (int row = articles_.size() - 1; row >= 0; --row) {
+      if (target_ids.contains(articles_.at(row).article_id)) {
+        continue;
+      }
+      beginRemoveRows(QModelIndex{}, row, row);
+      articles_.removeAt(row);
+      endRemoveRows();
+    }
+  }
+
+  QSet<QString> current_ids;
+  for (const auto &article : articles_) {
+    current_ids.insert(article.article_id);
+  }
+  for (int target_row = 0; target_row < target.size(); ++target_row) {
+    if (current_ids.contains(target.at(target_row).article_id)) {
+      continue;
+    }
+    beginInsertRows(QModelIndex{}, target_row, target_row);
+    articles_.insert(target_row, target.at(target_row));
+    endInsertRows();
+    current_ids.insert(target.at(target_row).article_id);
+  }
+
+  // Reorder without resetting the model, so delegates keep their state.
+  for (int target_row = 0; target_row < target.size(); ++target_row) {
+    int current_row = -1;
+    for (int row = target_row; row < articles_.size(); ++row) {
+      if (articles_.at(row).article_id == target.at(target_row).article_id) {
+        current_row = row;
+        break;
+      }
+    }
+    if (current_row < 0 || current_row == target_row) {
+      continue;
+    }
+    const auto destination = current_row > target_row ? target_row : target_row + 1;
+    beginMoveRows(QModelIndex{}, current_row, current_row, QModelIndex{}, destination);
+    articles_.move(current_row, target_row);
+    endMoveRows();
+  }
+
+  for (int row = 0; row < target.size(); ++row) {
+    const auto target_article = target.at(row);
+    if (articles_.at(row).article_id != target_article.article_id) {
+      continue;
+    }
+    articles_[row] = target_article;
+    emit dataChanged(index(row, 0), index(row, 0));
+  }
+
+  int new_selected_row = -1;
+  if (!selected_article_id.isEmpty()) {
+    for (int row = 0; row < articles_.size(); ++row) {
+      if (articles_.at(row).article_id == selected_article_id) {
+        new_selected_row = row;
+        break;
+      }
+    }
+  }
+  if (new_selected_row < 0 && !articles_.isEmpty()) {
+    new_selected_row = 0;
+  }
+  selected_row_ = new_selected_row;
+  emitRowChanged(previous_selected_row);
+  emitRowChanged(selected_row_);
+  emit selectedRowChanged();
 }
 
 QVariantMap ArticleListModel::articleAt(const int row) const {

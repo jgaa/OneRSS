@@ -31,12 +31,18 @@ UserSettingsData fromProto(const onerss::pb::UserSettings &settings) {
   return UserSettingsData{
     .default_refresh_interval_hours
     = static_cast<int>(settings.defaultRefreshIntervalHours() == 0 ? 12 : settings.defaultRefreshIntervalHours()),
+    .default_archive_mode = settings.defaultArchiveMode() == onerss::pb::ArchiveModeGadget::ArchiveMode::ARCHIVE_MODE_USE_DEFAULT
+                              ? 1
+                              : static_cast<int>(settings.defaultArchiveMode()),
+    .default_archive_limit = static_cast<int>(std::max<QtProtobuf::uint32>(1, settings.defaultArchiveLimit())),
   };
 }
 
 onerss::pb::UserSettings toProto(const UserSettingsData &settings) {
   onerss::pb::UserSettings proto;
   proto.setDefaultRefreshIntervalHours(static_cast<QtProtobuf::uint32>(std::max(1, settings.default_refresh_interval_hours)));
+  proto.setDefaultArchiveMode(static_cast<onerss::pb::ArchiveModeGadget::ArchiveMode>(settings.default_archive_mode));
+  proto.setDefaultArchiveLimit(static_cast<QtProtobuf::uint32>(std::max(1, settings.default_archive_limit)));
   return proto;
 }
 

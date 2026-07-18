@@ -76,8 +76,18 @@ message AppHelloResponse {
   string database_version = 6;
 }
 
+enum ArchiveMode {
+  ARCHIVE_MODE_USE_DEFAULT = 0;
+  ARCHIVE_MODE_KEEP_ALL = 1;
+  ARCHIVE_MODE_LIMIT_ARTICLES = 2;
+  ARCHIVE_MODE_DELETE_OLDER_THAN = 3;
+  ARCHIVE_MODE_DISABLED = 4;
+}
+
 message UserSettings {
   uint32 default_refresh_interval_hours = 1;
+  ArchiveMode default_archive_mode = 2;
+  uint32 default_archive_limit = 3;
 }
 
 message GetUserSettingsRequest {}
@@ -104,6 +114,8 @@ message TreeNode {
   string comment = 6;
   bool use_default_refresh_interval = 7;
   uint32 refresh_interval_hours = 8;
+  ArchiveMode archive_mode = 9;
+  uint32 archive_limit = 10;
 }
 
 message FetchTreeRequest {}

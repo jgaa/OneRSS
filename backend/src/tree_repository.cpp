@@ -1,5 +1,6 @@
 #include "tree_repository.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace onerss::backend {
@@ -14,6 +15,8 @@ onerss::pb::TreeNode toProto(const TreeNodeRecord &record) {
   node.set_comment(record.comment);
   node.set_use_default_refresh_interval(record.use_default_refresh_interval);
   node.set_refresh_interval_hours(record.refresh_interval_hours);
+  node.set_archive_mode(record.archive_mode);
+  node.set_archive_limit(record.archive_limit);
   return node;
 }
 
@@ -38,6 +41,10 @@ TreeNodeRecord fromProto(const std::string &user_id, const onerss::pb::TreeNode 
     .comment = node.comment(),
     .use_default_refresh_interval = node.use_default_refresh_interval(),
     .refresh_interval_hours = node.refresh_interval_hours() == 0 ? 12 : node.refresh_interval_hours(),
+    .archive_mode = static_cast<onerss::pb::ArchiveMode>(std::clamp(static_cast<int>(node.archive_mode()),
+                                                                     static_cast<int>(onerss::pb::ARCHIVE_MODE_USE_DEFAULT),
+                                                                     static_cast<int>(onerss::pb::ARCHIVE_MODE_DISABLED))),
+    .archive_limit = node.archive_limit(),
   };
 }
 

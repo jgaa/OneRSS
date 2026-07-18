@@ -93,7 +93,7 @@ std::vector<TreeNodeRecord> SqliteTreeRepository::listNodesForUser(const std::st
   std::scoped_lock lock{mutex_};
   auto select = prepare(*db_,
                         "SELECT id, user_id, parent_id, node_type, title, feed_url, comment, "
-                        "use_default_refresh_interval, refresh_interval_hours "
+                        "use_default_refresh_interval, refresh_interval_hours, archive_mode, archive_limit "
                         "FROM tree_nodes WHERE user_id = ?1 ORDER BY node_type, title, id");
   bindText(*select, 1, user_id);
 
@@ -117,6 +117,10 @@ std::vector<TreeNodeRecord> SqliteTreeRepository::listNodesForUser(const std::st
       .comment = columnText(*select, 6),
       .use_default_refresh_interval = columnInt(*select, 7) != 0,
       .refresh_interval_hours = static_cast<std::uint32_t>(std::max(1, columnInt(*select, 8))),
+      .archive_mode = static_cast<onerss::pb::ArchiveMode>(std::clamp(columnInt(*select, 9),
+                                                                       static_cast<int>(onerss::pb::ARCHIVE_MODE_USE_DEFAULT),
+                                                                       static_cast<int>(onerss::pb::ARCHIVE_MODE_DISABLED))),
+      .archive_limit = static_cast<std::uint32_t>(std::max(0, columnInt(*select, 10))),
     });
   }
 
@@ -136,8 +140,8 @@ TreeNodeRecord SqliteTreeRepository::createFolder(const std::string &user_id,
   auto insert = prepare(
     *db_,
     "INSERT INTO tree_nodes(id, user_id, parent_id, node_type, title, feed_url, comment, "
-    "use_default_refresh_interval, refresh_interval_hours) "
-    "VALUES(?1, ?2, ?3, ?4, ?5, '', '', 1, 12)");
+    "use_default_refresh_interval, refresh_interval_hours, archive_mode, archive_limit) "
+    "VALUES(?1, ?2, ?3, ?4, ?5, '', '', 1, 12, 0, 0)");
   bindText(*insert, 1, node_id);
   bindText(*insert, 2, user_id);
   bindText(*insert, 3, parent_id);
@@ -161,8 +165,8 @@ TreeNodeRecord SqliteTreeRepository::createFeed(const std::string &user_id,
   auto insert = prepare(
     *db_,
     "INSERT INTO tree_nodes(id, user_id, parent_id, node_type, title, feed_url, comment, "
-    "use_default_refresh_interval, refresh_interval_hours) "
-    "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 12)");
+    "use_default_refresh_interval, refresh_interval_hours, archive_mode, archive_limit) "
+    "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 12, 0, 0)");
   bindText(*insert, 1, node_id);
   bindText(*insert, 2, user_id);
   bindText(*insert, 3, parent_id);
@@ -181,17 +185,19 @@ TreeNodeRecord SqliteTreeRepository::updateNode(const std::string &user_id, cons
   auto update = prepare(
     *db_,
     "UPDATE tree_nodes SET parent_id = ?1, title = ?2, feed_url = ?3, comment = ?4, "
-    "use_default_refresh_interval = ?5, refresh_interval_hours = ?6 "
-    "WHERE id = ?7 AND user_id = ?8 AND node_type = ?9");
+    "use_default_refresh_interval = ?5, refresh_interval_hours = ?6, archive_mode = ?7, archive_limit = ?8 "
+    "WHERE id = ?9 AND user_id = ?10 AND node_type = ?11");
   bindText(*update, 1, node.parent_id);
   bindText(*update, 2, node.title);
   bindText(*update, 3, node.feed_url);
   bindText(*update, 4, node.comment);
   sqlite3_bind_int(update.get(), 5, node.use_default_refresh_interval ? 1 : 0);
   sqlite3_bind_int(update.get(), 6, static_cast<int>(std::max<std::uint32_t>(1, node.refresh_interval_hours)));
-  bindText(*update, 7, node.node_id);
-  bindText(*update, 8, user_id);
-  sqlite3_bind_int(update.get(), 9, node.type);
+  sqlite3_bind_int(update.get(), 7, node.archive_mode);
+  sqlite3_bind_int(update.get(), 8, static_cast<int>(node.archive_limit));
+  bindText(*update, 9, node.node_id);
+  bindText(*update, 10, user_id);
+  sqlite3_bind_int(update.get(), 11, node.type);
   checkStepDone(*db_, sqlite3_step(update.get()));
 
   if (sqlite3_changes(db_.get()) == 0) {
@@ -222,7 +228,7 @@ std::vector<TreeNodeRecord> SqliteTreeRepository::listAllFeeds() {
   std::scoped_lock lock{mutex_};
   auto select = prepare(*db_,
                         "SELECT id, user_id, parent_id, node_type, title, feed_url, comment, "
-                        "use_default_refresh_interval, refresh_interval_hours "
+                        "use_default_refresh_interval, refresh_interval_hours, archive_mode, archive_limit "
                         "FROM tree_nodes WHERE node_type = ?1 ORDER BY user_id, id");
   sqlite3_bind_int(select.get(), 1, onerss::pb::TreeNode::TYPE_FEED);
 
@@ -245,6 +251,10 @@ std::vector<TreeNodeRecord> SqliteTreeRepository::listAllFeeds() {
       .comment = columnText(*select, 6),
       .use_default_refresh_interval = columnInt(*select, 7) != 0,
       .refresh_interval_hours = static_cast<std::uint32_t>(std::max(1, columnInt(*select, 8))),
+      .archive_mode = static_cast<onerss::pb::ArchiveMode>(std::clamp(columnInt(*select, 9),
+                                                                       static_cast<int>(onerss::pb::ARCHIVE_MODE_USE_DEFAULT),
+                                                                       static_cast<int>(onerss::pb::ARCHIVE_MODE_DISABLED))),
+      .archive_limit = static_cast<std::uint32_t>(std::max(0, columnInt(*select, 10))),
     });
   }
   return nodes;
@@ -341,6 +351,57 @@ std::size_t SqliteTreeRepository::upsertArticles(const std::string &user_id,
     checkStepDone(*db_, sqlite3_step(insert.get()));
   }
   return new_entries;
+}
+
+void SqliteTreeRepository::applyArchivePolicy(const std::string &user_id,
+                                              const std::string &node_id,
+                                              const onerss::pb::ArchiveMode archive_mode,
+                                              const std::uint32_t archive_limit,
+                                              const std::vector<std::string> &current_guids) {
+  std::scoped_lock lock{mutex_};
+  validateParentLocked(user_id, node_id, onerss::pb::TreeNode::TYPE_FEED);
+  if (archive_mode == onerss::pb::ARCHIVE_MODE_KEEP_ALL) {
+    return;
+  }
+
+  std::string sql;
+  if (archive_mode == onerss::pb::ARCHIVE_MODE_LIMIT_ARTICLES) {
+    sql = "DELETE FROM articles WHERE user_id = ?1 AND node_id = ?2 "
+          "AND NOT EXISTS (SELECT 1 FROM queued_articles q WHERE q.original_article_id = articles.id) "
+          "AND id NOT IN (SELECT id FROM articles WHERE user_id = ?1 AND node_id = ?2 "
+          "ORDER BY CASE WHEN published_at = '' THEN 1 ELSE 0 END, published_at DESC, id DESC LIMIT ?3)";
+  } else if (archive_mode == onerss::pb::ARCHIVE_MODE_DELETE_OLDER_THAN) {
+    sql = "DELETE FROM articles WHERE user_id = ?1 AND node_id = ?2 "
+          "AND published_at <> '' AND datetime(published_at) < datetime('now', printf('-%d days', ?3)) "
+          "AND NOT EXISTS (SELECT 1 FROM queued_articles q WHERE q.original_article_id = articles.id)";
+  } else if (archive_mode == onerss::pb::ARCHIVE_MODE_DISABLED) {
+    sql = "DELETE FROM articles WHERE user_id = ?1 AND node_id = ?2 "
+          "AND NOT EXISTS (SELECT 1 FROM queued_articles q WHERE q.original_article_id = articles.id)";
+    if (!current_guids.empty()) {
+      sql += " AND article_guid NOT IN (";
+      for (std::size_t i = 0; i < current_guids.size(); ++i) {
+        if (i != 0) {
+          sql += ",";
+        }
+        sql += "?" + std::to_string(i + 3);
+      }
+      sql += ")";
+    }
+  } else {
+    return;
+  }
+
+  auto remove = prepare(*db_, sql.c_str());
+  bindText(*remove, 1, user_id);
+  bindText(*remove, 2, node_id);
+  if (archive_mode != onerss::pb::ARCHIVE_MODE_DISABLED) {
+    sqlite3_bind_int(remove.get(), 3, static_cast<int>(std::max(1u, archive_limit)));
+  } else {
+    for (std::size_t i = 0; i < current_guids.size(); ++i) {
+      bindText(*remove, static_cast<int>(i + 3), current_guids[i]);
+    }
+  }
+  checkStepDone(*db_, sqlite3_step(remove.get()));
 }
 
 std::vector<ArticleRecord> SqliteTreeRepository::listArticles(const std::string &user_id,
@@ -688,6 +749,8 @@ void SqliteTreeRepository::ensureSchema() {
           "  comment TEXT NOT NULL DEFAULT '',"
           "  use_default_refresh_interval INTEGER NOT NULL DEFAULT 1,"
           "  refresh_interval_hours INTEGER NOT NULL DEFAULT 12,"
+          "  archive_mode INTEGER NOT NULL DEFAULT 0,"
+          "  archive_limit INTEGER NOT NULL DEFAULT 0,"
           "  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE"
           ");");
   try {
@@ -699,6 +762,20 @@ void SqliteTreeRepository::ensureSchema() {
   }
   try {
     execute(*db_, "ALTER TABLE tree_nodes ADD COLUMN refresh_interval_hours INTEGER NOT NULL DEFAULT 12;");
+  } catch (const std::exception &error) {
+    if (std::string_view{error.what()}.find("duplicate column name") == std::string_view::npos) {
+      throw;
+    }
+  }
+  try {
+    execute(*db_, "ALTER TABLE tree_nodes ADD COLUMN archive_mode INTEGER NOT NULL DEFAULT 0;");
+  } catch (const std::exception &error) {
+    if (std::string_view{error.what()}.find("duplicate column name") == std::string_view::npos) {
+      throw;
+    }
+  }
+  try {
+    execute(*db_, "ALTER TABLE tree_nodes ADD COLUMN archive_limit INTEGER NOT NULL DEFAULT 0;");
   } catch (const std::exception &error) {
     if (std::string_view{error.what()}.find("duplicate column name") == std::string_view::npos) {
       throw;
@@ -944,7 +1021,7 @@ bool SqliteTreeRepository::isDescendantLocked(const std::string &user_id,
 TreeNodeRecord SqliteTreeRepository::fetchNodeLocked(const std::string &user_id, const std::string &node_id) {
   auto select = prepare(*db_,
                         "SELECT id, user_id, parent_id, node_type, title, feed_url, comment, "
-                        "use_default_refresh_interval, refresh_interval_hours "
+                        "use_default_refresh_interval, refresh_interval_hours, archive_mode, archive_limit "
                         "FROM tree_nodes WHERE id = ?1 AND user_id = ?2");
   bindText(*select, 1, node_id);
   bindText(*select, 2, user_id);
@@ -966,6 +1043,10 @@ TreeNodeRecord SqliteTreeRepository::fetchNodeLocked(const std::string &user_id,
     .comment = columnText(*select, 6),
     .use_default_refresh_interval = columnInt(*select, 7) != 0,
     .refresh_interval_hours = static_cast<std::uint32_t>(std::max(1, columnInt(*select, 8))),
+    .archive_mode = static_cast<onerss::pb::ArchiveMode>(std::clamp(columnInt(*select, 9),
+                                                                     static_cast<int>(onerss::pb::ARCHIVE_MODE_USE_DEFAULT),
+                                                                     static_cast<int>(onerss::pb::ARCHIVE_MODE_DISABLED))),
+    .archive_limit = static_cast<std::uint32_t>(std::max(0, columnInt(*select, 10))),
   };
 }
 

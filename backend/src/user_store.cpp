@@ -166,7 +166,9 @@ DeviceIdentity UserStore::authenticateDeviceCertificate(const std::string &certi
 
 UserSettingsRecord UserStore::getUserSettings(const std::string &user_id) {
   std::scoped_lock lock{mutex_};
-  auto select = prepare(*db_, "SELECT default_refresh_interval_hours FROM users WHERE id = ?1");
+  auto select = prepare(*db_,
+                        "SELECT default_refresh_interval_hours, default_archive_mode, default_archive_limit "
+                        "FROM users WHERE id = ?1");
   bindText(*select, 1, user_id);
   const auto rc = sqlite3_step(select.get());
   if (rc == SQLITE_DONE) {
@@ -178,20 +180,33 @@ UserSettingsRecord UserStore::getUserSettings(const std::string &user_id) {
   return UserSettingsRecord{
     .default_refresh_interval_hours
     = static_cast<std::uint32_t>(std::max(1, sqlite3_column_int(select.get(), 0))),
+    .default_archive_mode = static_cast<onerss::pb::ArchiveMode>(std::clamp(sqlite3_column_int(select.get(), 1),
+                                                                             static_cast<int>(onerss::pb::ARCHIVE_MODE_KEEP_ALL),
+                                                                             static_cast<int>(onerss::pb::ARCHIVE_MODE_DISABLED))),
+    .default_archive_limit = static_cast<std::uint32_t>(std::max(0, sqlite3_column_int(select.get(), 2))),
   };
 }
 
 UserSettingsRecord UserStore::updateUserSettings(const std::string &user_id, const UserSettingsRecord &settings) {
   std::scoped_lock lock{mutex_};
-  auto update = prepare(*db_, "UPDATE users SET default_refresh_interval_hours = ?1 WHERE id = ?2");
+  const auto archive_mode = std::clamp(static_cast<int>(settings.default_archive_mode),
+                                       static_cast<int>(onerss::pb::ARCHIVE_MODE_KEEP_ALL),
+                                       static_cast<int>(onerss::pb::ARCHIVE_MODE_DISABLED));
+  auto update = prepare(*db_,
+                        "UPDATE users SET default_refresh_interval_hours = ?1, default_archive_mode = ?2, "
+                        "default_archive_limit = ?3 WHERE id = ?4");
   sqlite3_bind_int(update.get(), 1, static_cast<int>(std::max<std::uint32_t>(1, settings.default_refresh_interval_hours)));
-  bindText(*update, 2, user_id);
+  sqlite3_bind_int(update.get(), 2, archive_mode);
+  sqlite3_bind_int(update.get(), 3, static_cast<int>(std::max<std::uint32_t>(1, settings.default_archive_limit)));
+  bindText(*update, 4, user_id);
   checkStepDone(*db_, sqlite3_step(update.get()));
   if (sqlite3_changes(db_.get()) == 0) {
     throw std::runtime_error{"user not found"};
   }
   return UserSettingsRecord{
     .default_refresh_interval_hours = std::max<std::uint32_t>(1, settings.default_refresh_interval_hours),
+    .default_archive_mode = static_cast<onerss::pb::ArchiveMode>(archive_mode),
+    .default_archive_limit = std::max<std::uint32_t>(1, settings.default_archive_limit),
   };
 }
 
@@ -206,11 +221,27 @@ void UserStore::ensureSchema() {
           "  id TEXT PRIMARY KEY,"
           "  login TEXT NOT NULL UNIQUE,"
           "  default_refresh_interval_hours INTEGER NOT NULL DEFAULT 12,"
+          "  default_archive_mode INTEGER NOT NULL DEFAULT 1,"
+          "  default_archive_limit INTEGER NOT NULL DEFAULT 1,"
           "  password_salt BLOB NOT NULL,"
           "  password_hash BLOB NOT NULL"
           ");");
   try {
     execute(*db_, "ALTER TABLE users ADD COLUMN default_refresh_interval_hours INTEGER NOT NULL DEFAULT 12;");
+  } catch (const std::exception &error) {
+    if (std::string_view{error.what()}.find("duplicate column name") == std::string_view::npos) {
+      throw;
+    }
+  }
+  try {
+    execute(*db_, "ALTER TABLE users ADD COLUMN default_archive_mode INTEGER NOT NULL DEFAULT 1;");
+  } catch (const std::exception &error) {
+    if (std::string_view{error.what()}.find("duplicate column name") == std::string_view::npos) {
+      throw;
+    }
+  }
+  try {
+    execute(*db_, "ALTER TABLE users ADD COLUMN default_archive_limit INTEGER NOT NULL DEFAULT 1;");
   } catch (const std::exception &error) {
     if (std::string_view{error.what()}.find("duplicate column name") == std::string_view::npos) {
       throw;

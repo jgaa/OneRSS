@@ -95,6 +95,7 @@ ApplicationWindow {
         configureComment.text = node.comment || ""
         configureUseDefault.checked = node.useDefaultRefreshInterval !== false
         configureRefreshHours.value = Math.max(1, node.refreshIntervalHours || mainViewModel.defaultRefreshIntervalHours)
+        configureArchiveSettings.reload(node.archiveMode || 0, node.archiveLimit || mainViewModel.defaultArchiveLimit)
         configureTabs.currentIndex = 0
         configureDialog.open()
     }
@@ -412,6 +413,7 @@ ApplicationWindow {
 
                 TabButton { text: qsTr("General") }
                 TabButton { text: qsTr("Refresh") }
+                TabButton { text: qsTr("Archive") }
             }
 
             StackLayout {
@@ -481,6 +483,11 @@ ApplicationWindow {
                         }
                     }
                 }
+
+                ArchiveSettings {
+                    id: configureArchiveSettings
+                    feedMode: true
+                }
             }
         }
 
@@ -490,7 +497,9 @@ ApplicationWindow {
                                                 configureUrl.text,
                                                 configureComment.text,
                                                 configureUseDefault.checked,
-                                                configureRefreshHours.value)
+                                                configureRefreshHours.value,
+                                                configureArchiveSettings.selectedMode,
+                                                configureArchiveSettings.retentionLimit)
     }
 
     Timer {

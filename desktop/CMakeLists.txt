@@ -73,6 +73,7 @@ qt_add_qml_module(onerss-desktop
   QML_FILES
     src/qml/Main.qml
     src/qml/AboutDialog.qml
+    src/qml/ArchiveSettings.qml
     src/qml/ArticleListPane.qml
     src/qml/ArticlePreviewPane.qml
     src/qml/BrowserSettings.qml
